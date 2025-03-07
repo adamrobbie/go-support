@@ -1,0 +1,25 @@
+# Environment variables
+.env
+
+# Binary files
+/go-support
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go specific
+*.test
+*.out
+/vendor/
+/Godeps/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# GoReleaser artifacts
+/dist/ 
