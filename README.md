@@ -1,6 +1,6 @@
 # Go WebSocket CLI
 
-A simple cross-platform command-line application that connects to a WebSocket server using configuration from a `.env` file. The application also includes screen sharing permission management and platform-specific application identification.
+A simple cross-platform command-line application that connects to a WebSocket server using configuration from a `.env` file. The application also includes screen sharing permission management, platform-specific application identification, and high-quality screenshot capabilities.
 
 ## Features
 
@@ -12,6 +12,9 @@ A simple cross-platform command-line application that connects to a WebSocket se
 - Cross-platform screen sharing permission management
 - Platform-specific application identification
 - Support for connecting to a TypeScript WebSocket server
+- High-quality screenshot capture across platforms (Windows, macOS, Linux)
+- Screenshot region selection and quality settings
+- Image format conversion and compression
 
 ## Project Structure
 
@@ -22,6 +25,7 @@ The project is organized into the following directories:
 - `pkg/`: Shared packages
   - `appid/`: Application identification
   - `permissions/`: Permission management
+  - `screenshot/`: Cross-platform screenshot functionality
 - `ws-server/`: TypeScript WebSocket server
 
 ## Installation
@@ -45,7 +49,7 @@ The project is organized into the following directories:
    make deps
    ```
 
-3. Create a `.env` file in the app directory with your WebSocket URLs:
+3. Create a `.env` file in the app directory with your WebSocket URLs and screenshot configuration:
    ```
    cd app
    cp .env.example .env
@@ -56,170 +60,167 @@ The project is organized into the following directories:
    TS_WEBSOCKET_URL=ws://localhost:8080
    ```
 
+## Screenshot Functionality
+
+The application includes a cross-platform screenshot module that works on Windows, macOS, and Linux. The module provides the following features:
+
+- Capture full-screen screenshots with different quality settings
+- Capture screenshots of specific regions
+- Save screenshots to a configurable directory
+- Convert between image formats (PNG, JPEG)
+- Compress images to reduce file size
+- Resize images with high-quality interpolation
+- Send screenshots through WebSocket to a server
+
+### Screenshot Configuration
+
+You can configure the screenshot functionality using the following environment variables or command-line flags:
+
+- `SCREENSHOT_DIR` or `--screenshot-dir`: Directory to save screenshots (default: `~/Screenshots`)
+
+### Screenshot Quality Settings
+
+The screenshot module supports three quality settings:
+
+- `Low`: Faster capture with smaller file size
+- `Medium`: Balanced quality and performance
+- `High`: Highest quality with larger file size
+
+### WebSocket Screenshot Commands
+
+The application supports sending screenshots through WebSocket connections. You can use the following commands in the console:
+
+- `screenshot`: Take and send a medium-quality screenshot
+- `screenshot low`: Take and send a low-quality screenshot
+- `screenshot high`: Take and send a high-quality screenshot
+- `region x y w h`: Take and send a screenshot of a specific region
+- `message <text>`: Send a chat message
+- `help`: Show available commands
+- `exit`: Exit the application
+
+### Server-Initiated Screenshots
+
+The server can request screenshots by sending a message with the type `request_screenshot`. The message can include the following fields:
+
+- `quality`: Quality setting (`low`, `medium`, or `high`)
+- `message`: Description of the screenshot request
+- `region`: Region to capture (object with `x`, `y`, `width`, and `height` properties)
+
+Example server request for a full screenshot:
+```json
+{
+  "type": "request_screenshot",
+  "message": "Please send a screenshot of your desktop",
+  "metadata": {
+    "quality": "high"
+  }
+}
+```
+
+Example server request for a region screenshot:
+```json
+{
+  "type": "request_screenshot",
+  "message": "Please send a screenshot of the specified region",
+  "metadata": {
+    "quality": "medium",
+    "region": {
+      "x": 100,
+      "y": 100,
+      "width": 800,
+      "height": 600
+    }
+  }
+}
+```
+
+### Screenshot Message Format
+
+When a screenshot is sent through the WebSocket connection, it uses the following format:
+
+```json
+{
+  "type": "screenshot",
+  "message": "Screenshot description",
+  "timestamp": "2023-03-07T12:34:56Z",
+  "screenshotData": "base64-encoded-image-data",
+  "imageFormat": "png",
+  "width": 1920,
+  "height": 1080,
+  "metadata": {
+    "platform": "darwin",
+    "arch": "amd64"
+  }
+}
+```
+
+### Example Usage
+
+```go
+// Capture a full-screen screenshot with high quality
+ss, err := screenshot.Capture(screenshot.High)
+if err != nil {
+    log.Fatalf("Failed to capture screenshot: %v", err)
+}
+
+// Save the screenshot to a file
+if err := ss.SaveToFile("screenshot.png"); err != nil {
+    log.Fatalf("Failed to save screenshot: %v", err)
+}
+
+// Capture a specific region of the screen
+region := screenshot.Region{
+    X:      100,
+    Y:      100,
+    Width:  800,
+    Height: 600,
+}
+ss, err = screenshot.CaptureRegion(region, screenshot.High)
+if err != nil {
+    log.Fatalf("Failed to capture region: %v", err)
+}
+
+// Resize the screenshot
+if err := ss.Resize(400, 300); err != nil {
+    log.Fatalf("Failed to resize screenshot: %v", err)
+}
+
+// Compress the screenshot
+if err := ss.Compress(80); err != nil {
+    log.Fatalf("Failed to compress screenshot: %v", err)
+}
+
+// Convert to JPEG format
+if err := ss.ConvertToFormat("jpeg"); err != nil {
+    log.Fatalf("Failed to convert format: %v", err)
+}
+
+// Send the screenshot through WebSocket
+base64Data := ss.ToBase64()
+err = wsClient.SendScreenshot(base64Data, ss.Format, ss.Width, ss.Height, "Screenshot description")
+if err != nil {
+    log.Fatalf("Failed to send screenshot: %v", err)
+}
+```
+
 ## Usage
 
-### Go Application
+### Command-Line Flags
 
-Using the Makefile:
+The application supports the following command-line flags:
 
-```bash
-# Build the application
-make build
-
-# Run the application
-make run
-
-# Run with verbose logging
-make run-verbose
-
-# Run with permissions skipped
-make run-skip-permissions
-
-# Run with TypeScript WebSocket server
-make run-ts-ws
-
-# Run with TypeScript WebSocket server and verbose logging
-make run-ts-ws-verbose
-```
-
-Or manually:
-
-```bash
-# Build
-cd app && go build -o ../go-support .
-
-# Run
-./go-support
-
-# With verbose logging
-./go-support -verbose
-
-# Skip permission checks
-./go-support -skip-permissions
-
-# Use TypeScript WebSocket server
-./go-support -use-ts-ws
-
-# Use TypeScript WebSocket server with verbose logging
-./go-support -use-ts-ws -verbose
-```
-
-### TypeScript WebSocket Server
-
-Using the Makefile:
-
-```bash
-# Install dependencies
-make ts-install
-
-# Build the server
-make ts-build
-
-# Start the server in development mode (with hot reloading)
-make ts-dev
-
-# Start the server in production mode
-make ts-start
-
-# Stop the server
-make ts-stop
-
-# Run both the Go application and TypeScript server together
-make run-all
-```
-
-Or manually:
-
-```bash
-# Install dependencies
-cd ws-server && npm install
-
-# Start in development mode
-cd ws-server && npm run dev
-
-# Build
-cd ws-server && npm run build
-
-# Start in production mode
-cd ws-server && npm start
-```
-
-## Command-line Options
-
-- `-verbose`: Enable verbose logging
-- `-skip-permissions`: Skip screen sharing permission checks
-- `-use-ts-ws`: Use the TypeScript WebSocket server instead of the default WebSocket server
-
-## Screen Sharing Permissions
-
-The application includes a permission manager that handles screen sharing permissions across different platforms:
-
-- **macOS**: Uses the `screencapture` command to check for and request screen recording permissions. Opens System Preferences to the Screen Recording privacy settings and provides an interactive retry mechanism.
-- **Windows**: Opens Windows Settings to the Screen Recording privacy section
-- **Linux**: Attempts to open privacy settings using xdg-open (varies by desktop environment)
-
-### Permission Flow
-
-When the application starts, it will check for screen sharing permissions. If permissions are not granted:
-
-1. The application will display clear instructions on how to grant permissions
-2. It will open the appropriate system settings panel
-3. For macOS, you can:
-   - Press 'r' to retry the permission check after granting permission
-   - Press 'q' to quit the application and restart it later
-
-If you don't want to deal with permissions, you can use the `-skip-permissions` flag to bypass the permission checks.
-
-## Application Identification
-
-The application sets up platform-specific identification to make it recognizable by the operating system:
-
-- **macOS**: Creates an application bundle with a proper Info.plist file containing the bundle identifier
-- **Windows**: Sets up an Application User Model ID (AUMID)
-- **Linux**: Creates a desktop entry file in the user's local applications directory
-
-This allows the application to be properly recognized by the operating system, which is particularly useful when running through Cursor or other IDEs.
-
-## TypeScript WebSocket Server
-
-The application includes a TypeScript WebSocket server in the `ws-server` directory. This server provides:
-
-- WebSocket communication with JSON messages
-- RESTful API endpoints
-- Interactive test client
-
-To use the TypeScript WebSocket server:
-
-1. Start the server:
-   ```
-   make ts-dev
-   ```
-
-2. Run the Go client with the `-use-ts-ws` flag:
-   ```
-   make run-ts-ws
-   ```
-
-Or run both together:
-```
-make run-all
-```
-
-For more information about the TypeScript WebSocket server, see the [ws-server README](ws-server/README.md).
-
-## Development
-
-### Requirements
-
-- Go 1.21+
-- GoReleaser (for releases)
-- Node.js 14+ (for TypeScript WebSocket server)
-- npm 6+ (for TypeScript WebSocket server)
+- `--verbose`: Enable verbose logging
+- `--skip-permissions`: Skip permission checks
+- `--use-ts-ws`: Use TypeScript WebSocket server
+- `--ws`: WebSocket server URL (overrides environment variable)
+- `--ts-ws`: TypeScript WebSocket server URL (overrides environment variable)
+- `--screenshot-dir`: Directory to save screenshots (overrides environment variable)
 
 ### Makefile Commands
 
-The project includes a Makefile with common commands:
+The project includes a Makefile with the following commands:
 
+- `make deps`: Install dependencies
 - `make build`: Build the application
 - `make clean`: Clean build artifacts
 - `make test`: Run tests
@@ -266,6 +267,7 @@ The tests are organized by package:
 
 - `pkg/permissions`: Tests for the permission manager
 - `pkg/appid`: Tests for the application identifier
+- `pkg/screenshot`: Tests for the screenshot functionality
 - `app`: Tests for the main application logic
 
 ### Release Process
@@ -299,4 +301,4 @@ Alternatively, you can manually create a release:
 
 ## License
 
-[MIT](LICENSE) 
+[MIT](LICENSE)

@@ -1,4 +1,4 @@
-.PHONY: build clean test test-verbose test-coverage run run-verbose run-skip-permissions run-ts-ws run-ts-ws-verbose ts-install ts-build ts-start ts-dev ts-stop run-all run-ts-ws-verbose release-dry-run release
+.PHONY: build clean test test-verbose test-coverage run run-verbose run-skip-permissions run-ts-ws run-ts-ws-verbose ts-install ts-build ts-build-react ts-start ts-dev ts-dev-react ts-stop run-all run-ts-ws-verbose release-dry-run release
 
 # Application name
 APP_NAME=go-support
@@ -17,6 +17,8 @@ NPMI=$(NPM) install
 NPMS=$(NPM) start
 NPMB=$(NPM) run build
 NPMD=$(NPM) run dev
+NPMBR=$(NPM) run build:react
+NPMDR=$(NPM) run dev:react
 
 # Build flags
 LDFLAGS=-ldflags "-s -w"
@@ -32,6 +34,7 @@ clean:
 	rm -rf dist/
 	rm -f coverage.out
 	rm -rf ws-server/dist/
+	rm -rf ws-server/public/dist/
 
 # Run tests
 test:
@@ -54,25 +57,17 @@ run: build
 run-verbose: build
 	./$(APP_NAME) -verbose
 
-# Skip permissions
-run-skip-permissions: build
-	./$(APP_NAME) -skip-permissions
-
-# Run with TypeScript WebSocket server
-run-ts-ws: build
-	./$(APP_NAME) -use-ts-ws
-
-# Run with TypeScript WebSocket server and verbose logging
-run-ts-ws-verbose: build
-	./$(APP_NAME) -use-ts-ws -verbose
-
 # Install TypeScript WebSocket server dependencies
 ts-install:
 	cd ws-server && $(NPMI)
 
-# Build TypeScript WebSocket server
+# Build TypeScript WebSocket server (includes React frontend)
 ts-build: ts-install
 	cd ws-server && $(NPMB)
+
+# Build React frontend for WebSocket server separately
+ts-build-react: ts-install
+	cd ws-server && $(NPMBR)
 
 # Start TypeScript WebSocket server in production mode
 ts-start: ts-build
@@ -82,16 +77,32 @@ ts-start: ts-build
 ts-dev: ts-install
 	cd ws-server && $(NPMD)
 
+# Start React frontend in development mode (watch mode)
+ts-dev-react: ts-install
+	cd ws-server && $(NPMDR)
+
+# Start both TypeScript server and React frontend in development mode
+ts-dev-all:
+	$(MAKE) -j2 ts-dev-react ts-dev
+
 # Stop TypeScript WebSocket server
 ts-stop:
 	-pkill -f "node.*ws-server" || true
 
 # Run both Go app and TypeScript server
-run-all: ts-dev-bg run-ts-ws
+run-all: ts-dev-bg run
 
 # Run TypeScript server in background
 ts-dev-bg: ts-install
 	cd ws-server && $(NPMD) &
+
+# Run TypeScript server with React frontend in background
+ts-dev-all-bg: ts-install
+	cd ws-server && $(NPMD) & \
+	cd ws-server && $(NPMDR) &
+
+# Run both Go app and TypeScript server with React frontend
+run-all-with-frontend: ts-dev-all-bg run
 
 # Update dependencies
 deps:

@@ -22,4 +22,5 @@
 *.swo
 
 # GoReleaser artifacts
-/dist/ 
+/dist/
+/Screenshots/

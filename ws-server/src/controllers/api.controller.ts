@@ -16,7 +16,13 @@ export class ApiController {
     this.router.get('/health', this.healthCheck.bind(this));
     
     // Get client count
-    this.router.get('/clients', this.getClientCount.bind(this));
+    this.router.get('/clients/count', this.getClientCount.bind(this));
+    
+    // Get client list
+    this.router.get('/clients', this.getClients.bind(this));
+    
+    // Get server info
+    this.router.get('/server-info', this.getServerInfo.bind(this));
     
     // Broadcast message to all clients
     this.router.post('/broadcast', this.broadcastMessage.bind(this));
@@ -31,7 +37,27 @@ export class ApiController {
 
   private getClientCount(req: Request, res: Response): void {
     res.status(200).json({
-      clientCount: this.wsService.getClientCount(),
+      clientCount: this.wsService.getRegularClientCount(),
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  private getClients(req: Request, res: Response): void {
+    res.status(200).json({
+      clients: this.wsService.getRegularClients(),
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  private getServerInfo(req: Request, res: Response): void {
+    const startTime = new Date(Date.now() - process.uptime() * 1000);
+    const uptime = this.formatUptime(process.uptime());
+    
+    res.status(200).json({
+      uptime,
+      startTime: startTime.toISOString(),
+      clientCount: this.wsService.getRegularClientCount(),
+      messageCount: this.wsService.getMessageCount(),
       timestamp: new Date().toISOString(),
     });
   }
@@ -57,6 +83,21 @@ export class ApiController {
       success: true,
       message: 'Message broadcasted successfully',
     });
+  }
+  
+  private formatUptime(seconds: number): string {
+    const days = Math.floor(seconds / (3600 * 24));
+    const hours = Math.floor((seconds % (3600 * 24)) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    let uptime = '';
+    if (days > 0) uptime += `${days}d `;
+    if (hours > 0 || days > 0) uptime += `${hours}h `;
+    if (minutes > 0 || hours > 0 || days > 0) uptime += `${minutes}m `;
+    uptime += `${secs}s`;
+    
+    return uptime;
   }
 
   public getRouter(): Router {
