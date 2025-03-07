@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image/png"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/adamrobbie/go-support/pkg/client"
 	"github.com/adamrobbie/go-support/pkg/permissions"
+	"github.com/adamrobbie/go-support/pkg/remote"
 	"github.com/adamrobbie/go-support/pkg/screenshot"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
@@ -35,6 +37,8 @@ type Config struct {
 	Interactive        bool
 	AutoScreenshot     bool // Whether to automatically take screenshots
 	ScreenshotInterval int  // Interval in seconds between automatic screenshots
+	TestRobotgo        bool // Whether to run RobotGo tests
+	RequestPermissions bool // Whether to explicitly request permissions
 }
 
 // App represents the application
@@ -45,6 +49,7 @@ type App struct {
 	Done               chan struct{}
 	stopAutoScreenshot chan struct{} // Channel to stop automatic screenshots
 	Interrupt          chan os.Signal
+	RemoteController   *remote.RemoteController
 }
 
 // Message types
@@ -52,6 +57,10 @@ const (
 	MessageTypeClientInfo     = "clientInfo"
 	MessageTypeScreenshot     = "screenshot"
 	MessageTypeTakeScreenshot = "takeScreenshot"
+	MessageTypeMouseEvent     = "mouseEvent"
+	MessageTypeKeyboardEvent  = "keyboardEvent"
+	MessageTypeScreenSize     = "screenSize"
+	MessageTypeMousePosition  = "mousePosition"
 )
 
 // ScreenshotMessage represents a screenshot message to be sent to the server
@@ -79,6 +88,8 @@ func main() {
 	screenshotDir := flag.String("screenshot-dir", os.Getenv("SCREENSHOT_DIR"), "Directory to save screenshots")
 	autoScreenshot := flag.Bool("auto-screenshot", false, "Automatically take screenshots")
 	screenshotInterval := flag.Int("screenshot-interval", 10, "Interval in seconds between automatic screenshots")
+	testRobotgo := flag.Bool("test-robotgo", false, "Test RobotGo functionality")
+	requestPermissions := flag.Bool("request-permissions", false, "Explicitly request permissions")
 	flag.Parse()
 
 	// Create configuration
@@ -90,6 +101,8 @@ func main() {
 	config.ScreenshotDir = *screenshotDir
 	config.AutoScreenshot = *autoScreenshot
 	config.ScreenshotInterval = *screenshotInterval
+	config.TestRobotgo = *testRobotgo
+	config.RequestPermissions = *requestPermissions
 
 	// Load additional configuration from environment
 	if err := loadConfig(&config); err != nil {
@@ -153,11 +166,29 @@ func NewApp(config Config, interrupt chan os.Signal) *App {
 
 // Run runs the application
 func (a *App) Run() error {
-	// Check permissions
+	log.Println("Starting go-support...")
+
+	// Check permissions if not skipped
 	if !a.Config.SkipPermissions {
 		if err := a.checkPermissions(); err != nil {
-			return err
+			return fmt.Errorf("permission check failed: %w", err)
 		}
+	}
+
+	// Explicitly request permissions if requested
+	if a.Config.RequestPermissions {
+		if err := a.requestPermissionsInteractive(); err != nil {
+			return fmt.Errorf("permission request failed: %w", err)
+		}
+		return nil // Exit after requesting permissions
+	}
+
+	// Test RobotGo if requested
+	if a.Config.TestRobotgo {
+		if err := a.testRobotgo(); err != nil {
+			return fmt.Errorf("RobotGo test failed: %w", err)
+		}
+		return nil // Exit after test
 	}
 
 	// Connect to WebSocket server
@@ -282,50 +313,68 @@ func (a *App) captureRegionAndSendScreenshot(region screenshot.Region, quality s
 // checkPermissions checks if the application has the required permissions
 func (a *App) checkPermissions() error {
 	// Create a new permission manager
-	a.PermManager = permissions.NewManager()
+	a.PermManager = permissions.NewManager(a.Config.Verbose)
 
 	// Check if screen sharing permissions are granted
-	status, err := a.PermManager.CheckPermission(permissions.ScreenShare)
+	log.Println("Checking screen sharing permissions...")
+	screenShareStatus, err := a.PermManager.CheckPermission(permissions.ScreenShare)
 	if err != nil {
 		return fmt.Errorf("failed to check screen sharing permission: %w", err)
 	}
 
-	if status != permissions.Granted {
-		log.Println("Screen sharing permission not granted")
+	if screenShareStatus != permissions.Granted {
+		log.Println("⚠️ Screen sharing permission not granted")
 
-		// Request permission
-		status, err := a.PermManager.RequestPermission(permissions.ScreenShare)
-		if err != nil {
-			return fmt.Errorf("failed to request screen sharing permission: %w", err)
-		}
+		// Ask user if they want to request permission interactively
+		fmt.Println("\nScreen sharing permission is required for screenshot functionality.")
+		fmt.Println("Would you like to grant this permission now? (y/n)")
+		var input string
+		fmt.Scanln(&input)
 
-		// Check again after request
-		if status != permissions.Granted {
-			// For macOS, provide an interactive retry mechanism
-			if runtime.GOOS == "darwin" {
-				log.Println("Please grant screen recording permission in System Preferences")
-				log.Println("Press 'r' to retry or 'q' to quit")
-
-				scanner := bufio.NewScanner(os.Stdin)
-				for scanner.Scan() {
-					input := scanner.Text()
-					if input == "r" {
-						status, _ := a.PermManager.CheckPermission(permissions.ScreenShare)
-						if status == permissions.Granted {
-							log.Println("Permission granted!")
-							break
-						} else {
-							log.Println("Permission still not granted")
-							log.Println("Press 'r' to retry or 'q' to quit")
-						}
-					} else if input == "q" {
-						return fmt.Errorf("user quit due to permission not granted")
-					}
-				}
-			} else {
+		if input == "y" || input == "Y" {
+			// Request permission interactively
+			granted := a.PermManager.RequestPermissionInteractive(permissions.ScreenShare)
+			if !granted {
 				return fmt.Errorf("screen sharing permission not granted")
 			}
+		} else {
+			return fmt.Errorf("screen sharing permission not granted")
 		}
+	}
+
+	log.Println("✅ Screen sharing permission granted")
+
+	// Always check accessibility permissions for remote control
+	log.Println("Checking accessibility permissions for remote control...")
+	accessibilityStatus, err := a.PermManager.CheckPermission(permissions.RemoteControl)
+	if err != nil {
+		log.Printf("⚠️ Warning: Failed to check accessibility permission: %v", err)
+		log.Println("Remote control features may not work correctly")
+		// Don't return error here, just warn the user
+	} else if accessibilityStatus != permissions.Granted {
+		log.Println("⚠️ Warning: Accessibility permission not granted")
+
+		// Ask user if they want to request permission interactively
+		fmt.Println("\nAccessibility permission is required for remote control functionality.")
+		fmt.Println("Would you like to grant this permission now? (y/n)")
+		var input string
+		fmt.Scanln(&input)
+
+		if input == "y" || input == "Y" {
+			// Request permission interactively
+			granted := a.PermManager.RequestPermissionInteractive(permissions.RemoteControl)
+			if granted {
+				log.Println("✅ Accessibility permission granted")
+			} else {
+				log.Println("⚠️ Warning: Accessibility permission not granted")
+				log.Println("Remote control features may not work correctly")
+			}
+		} else {
+			log.Println("⚠️ Warning: Accessibility permission not granted")
+			log.Println("Remote control features may not work correctly")
+		}
+	} else {
+		log.Println("✅ Accessibility permission granted")
 	}
 
 	return nil
@@ -333,6 +382,7 @@ func (a *App) checkPermissions() error {
 
 // connectWebSocket connects to the WebSocket server
 func (a *App) connectWebSocket() error {
+	// Determine the WebSocket URL
 	var url string
 	if a.Config.UseTypeScriptWS {
 		url = a.Config.TSWebSocketURL
@@ -341,12 +391,67 @@ func (a *App) connectWebSocket() error {
 	}
 
 	log.Printf("Connecting to WebSocket server at %s...", url)
+
+	// Create a new WebSocket client
 	a.WSClient = client.NewWebSocketClient(url, a.Config.Verbose)
+
+	// Create a new remote controller
+	a.RemoteController = remote.NewRemoteController(a.PermManager, a.Config.Verbose)
 
 	// Register message handlers
 	a.WSClient.RegisterHandler(MessageTypeTakeScreenshot, func(data []byte) error {
 		log.Println("Received screenshot request from server")
 		return a.captureAndSendScreenshot(screenshot.High, "Requested screenshot")
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeMouseEvent, func(data []byte) error {
+		var event remote.MouseEvent
+		if err := json.Unmarshal(data, &event); err != nil {
+			return fmt.Errorf("failed to parse mouse event: %w", err)
+		}
+
+		log.Printf("Received mouse event: %+v", event)
+		return a.RemoteController.ExecuteMouseEvent(event)
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeKeyboardEvent, func(data []byte) error {
+		var event remote.KeyboardEvent
+		if err := json.Unmarshal(data, &event); err != nil {
+			return fmt.Errorf("failed to parse keyboard event: %w", err)
+		}
+
+		log.Printf("Received keyboard event: %+v", event)
+		return a.RemoteController.ExecuteKeyboardEvent(event)
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeScreenSize, func(data []byte) error {
+		width, height, err := a.RemoteController.GetScreenSize()
+		if err != nil {
+			return fmt.Errorf("failed to get screen size: %w", err)
+		}
+
+		message := map[string]interface{}{
+			"type":   MessageTypeScreenSize,
+			"width":  width,
+			"height": height,
+		}
+
+		return a.WSClient.SendJSON(message)
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeMousePosition, func(data []byte) error {
+		x, y, err := a.RemoteController.GetMousePosition()
+		if err != nil {
+			return fmt.Errorf("failed to get mouse position: %w", err)
+		}
+
+		message := map[string]interface{}{
+			"type": MessageTypeMousePosition,
+			"x":    x,
+			"y":    y,
+		}
+
+		return a.WSClient.SendJSON(message)
 	})
 
 	// Connect to the server
@@ -359,6 +464,22 @@ func (a *App) connectWebSocket() error {
 	// Send client information after connection
 	if err := a.sendClientInfo(); err != nil {
 		log.Printf("Failed to send client info: %v", err)
+	}
+
+	// Send screen size information
+	width, height, err := a.RemoteController.GetScreenSize()
+	if err != nil {
+		log.Printf("Failed to get screen size: %v", err)
+	} else {
+		screenSizeMsg := map[string]interface{}{
+			"type":   MessageTypeScreenSize,
+			"width":  width,
+			"height": height,
+		}
+
+		if err := a.WSClient.SendJSON(screenSizeMsg); err != nil {
+			log.Printf("Failed to send screen size info: %v", err)
+		}
 	}
 
 	return nil
@@ -610,4 +731,227 @@ func captureAndSendScreenshot(wsConn *websocket.Conn) error {
 
 	log.Println("Sending screenshot to server...")
 	return wsConn.WriteJSON(message)
+}
+
+// testRobotgo runs a series of tests to verify RobotGo functionality
+func (a *App) testRobotgo() error {
+	log.Println("=================================================================")
+	log.Println("🤖 TESTING ROBOTGO FUNCTIONALITY 🤖")
+	log.Println("=================================================================")
+	log.Println("This test will verify that RobotGo is working correctly.")
+	log.Println("You should see the mouse move and draw a square, and text being typed.")
+	log.Println("=================================================================")
+
+	// Create a remote controller for testing
+	if a.RemoteController == nil {
+		log.Println("Creating new RemoteController...")
+		a.RemoteController = remote.NewRemoteController(a.PermManager, true) // Force verbose mode for testing
+	}
+
+	// Test 1: Get screen size
+	log.Println("Test 1: Getting screen size...")
+	width, height, err := a.RemoteController.GetScreenSize()
+	if err != nil {
+		log.Printf("❌ Failed to get screen size: %v", err)
+		return fmt.Errorf("failed to get screen size: %w", err)
+	}
+	log.Printf("✅ Screen size: %dx%d", width, height)
+
+	// Test 2: Get mouse position
+	log.Println("Test 2: Getting mouse position...")
+	startX, startY, err := a.RemoteController.GetMousePosition()
+	if err != nil {
+		log.Printf("❌ Failed to get mouse position: %v", err)
+		return fmt.Errorf("failed to get mouse position: %w", err)
+	}
+	log.Printf("✅ Current mouse position: (%d,%d)", startX, startY)
+
+	// Test 3: Move mouse to center of screen
+	log.Println("Test 3: Moving mouse to center of screen...")
+	centerX := width / 2
+	centerY := height / 2
+	log.Printf("Attempting to move mouse to (%d,%d)", centerX, centerY)
+
+	err = a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+		Action: remote.MouseMove,
+		X:      centerX,
+		Y:      centerY,
+	})
+	if err != nil {
+		log.Printf("❌ Failed to move mouse: %v", err)
+		return fmt.Errorf("failed to move mouse: %w", err)
+	}
+
+	// Verify mouse position after move
+	newX, newY, _ := a.RemoteController.GetMousePosition()
+	if newX == centerX && newY == centerY {
+		log.Printf("✅ Mouse successfully moved to (%d,%d)", newX, newY)
+	} else {
+		log.Printf("⚠️ Mouse position after move: (%d,%d), expected: (%d,%d)", newX, newY, centerX, centerY)
+		log.Println("Mouse movement may not be working correctly.")
+
+		// Ask user if they want to continue
+		log.Println("Do you want to continue with the test? (y/n)")
+		var input string
+		fmt.Scanln(&input)
+		if input != "y" && input != "Y" {
+			return fmt.Errorf("test aborted by user")
+		}
+	}
+
+	// Test 4: Draw a square with the mouse
+	log.Println("Test 4: Drawing a square with the mouse...")
+
+	// Define square corners (100x100 square around center)
+	size := 100
+	corners := []struct{ x, y int }{
+		{centerX - size/2, centerY - size/2}, // Top-left
+		{centerX + size/2, centerY - size/2}, // Top-right
+		{centerX + size/2, centerY + size/2}, // Bottom-right
+		{centerX - size/2, centerY + size/2}, // Bottom-left
+		{centerX - size/2, centerY - size/2}, // Back to top-left
+	}
+
+	// Move to first corner
+	log.Printf("Moving to first corner: (%d,%d)", corners[0].x, corners[0].y)
+	err = a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+		Action: remote.MouseMove,
+		X:      corners[0].x,
+		Y:      corners[0].y,
+	})
+	if err != nil {
+		log.Printf("❌ Failed to move mouse: %v", err)
+		return fmt.Errorf("failed to move mouse: %w", err)
+	}
+
+	// Press mouse button down
+	log.Println("Pressing mouse button down...")
+	err = a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+		Action: remote.MouseDown,
+		Button: remote.LeftButton,
+	})
+	if err != nil {
+		log.Printf("❌ Failed to press mouse button: %v", err)
+		return fmt.Errorf("failed to press mouse button: %w", err)
+	}
+
+	// Draw the square by moving to each corner
+	for i := 1; i < len(corners); i++ {
+		time.Sleep(500 * time.Millisecond) // Slow down for visibility
+		log.Printf("Moving to corner %d: (%d,%d)", i, corners[i].x, corners[i].y)
+		err = a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+			Action: remote.MouseMove,
+			X:      corners[i].x,
+			Y:      corners[i].y,
+		})
+		if err != nil {
+			// Release mouse button before returning error
+			a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+				Action: remote.MouseUp,
+				Button: remote.LeftButton,
+			})
+			log.Printf("❌ Failed to move mouse: %v", err)
+			return fmt.Errorf("failed to move mouse: %w", err)
+		}
+	}
+
+	// Release mouse button
+	log.Println("Releasing mouse button...")
+	err = a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+		Action: remote.MouseUp,
+		Button: remote.LeftButton,
+	})
+	if err != nil {
+		log.Printf("❌ Failed to release mouse button: %v", err)
+		return fmt.Errorf("failed to release mouse button: %w", err)
+	}
+
+	// Test 5: Type some text
+	log.Println("Test 5: Testing keyboard input...")
+	log.Println("Please open a text editor or click in a text field to see the typing test.")
+
+	// Wait a moment before typing
+	log.Println("Waiting 3 seconds before typing...")
+	time.Sleep(3 * time.Second)
+
+	// Type a test message
+	testText := "RobotGo Test Successful!"
+	log.Printf("Typing: \"%s\"", testText)
+	err = a.RemoteController.ExecuteKeyboardEvent(remote.KeyboardEvent{
+		Action: remote.KeyType,
+		Text:   testText,
+	})
+	if err != nil {
+		log.Printf("❌ Failed to type text: %v", err)
+		return fmt.Errorf("failed to type text: %w", err)
+	}
+
+	// Move mouse back to original position
+	log.Printf("Moving mouse back to original position: (%d,%d)", startX, startY)
+	a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+		Action: remote.MouseMove,
+		X:      startX,
+		Y:      startY,
+	})
+
+	log.Println("=================================================================")
+	log.Println("✅ All RobotGo tests completed!")
+	log.Println("=================================================================")
+	return nil
+}
+
+// requestPermissionsInteractive requests permissions interactively
+func (a *App) requestPermissionsInteractive() error {
+	// Create a new permission manager if not already created
+	if a.PermManager == nil {
+		a.PermManager = permissions.NewManager(a.Config.Verbose)
+	}
+
+	fmt.Println("=================================================================")
+	fmt.Println("🔒 INTERACTIVE PERMISSION REQUEST 🔒")
+	fmt.Println("=================================================================")
+	fmt.Println("This will guide you through granting permissions required by the application.")
+	fmt.Println("=================================================================")
+
+	// Request screen sharing permission
+	fmt.Println("\n1. Screen Sharing Permission")
+	fmt.Println("--------------------------")
+	screenShareGranted := a.PermManager.RequestPermissionInteractive(permissions.ScreenShare)
+
+	if screenShareGranted {
+		fmt.Println("✅ Screen sharing permission granted successfully!")
+	} else {
+		fmt.Println("⚠️ Screen sharing permission not granted.")
+		fmt.Println("Screenshot functionality may not work correctly.")
+	}
+
+	// Request remote control permission
+	fmt.Println("\n2. Remote Control Permission")
+	fmt.Println("--------------------------")
+	remoteControlGranted := a.PermManager.RequestPermissionInteractive(permissions.RemoteControl)
+
+	if remoteControlGranted {
+		fmt.Println("✅ Remote control permission granted successfully!")
+	} else {
+		fmt.Println("⚠️ Remote control permission not granted.")
+		fmt.Println("Mouse and keyboard control functionality may not work correctly.")
+	}
+
+	// Summary
+	fmt.Println("\n=================================================================")
+	fmt.Println("PERMISSION SUMMARY")
+	fmt.Println("=================================================================")
+	fmt.Printf("Screen Sharing: %s\n", boolToStatus(screenShareGranted))
+	fmt.Printf("Remote Control: %s\n", boolToStatus(remoteControlGranted))
+	fmt.Println("=================================================================")
+
+	return nil
+}
+
+// boolToStatus converts a boolean to a status string
+func boolToStatus(granted bool) string {
+	if granted {
+		return "✅ Granted"
+	}
+	return "❌ Not Granted"
 }

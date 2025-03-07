@@ -26,6 +26,13 @@ export class ApiController {
     
     // Broadcast message to all clients
     this.router.post('/broadcast', this.broadcastMessage.bind(this));
+    
+    // Remote control endpoints
+    this.router.post('/clients/:clientId/mouse', this.sendMouseEvent.bind(this));
+    this.router.post('/clients/:clientId/keyboard', this.sendKeyboardEvent.bind(this));
+    this.router.get('/clients/:clientId/screen-size', this.requestScreenSize.bind(this));
+    this.router.get('/clients/:clientId/mouse-position', this.requestMousePosition.bind(this));
+    this.router.post('/clients/:clientId/screenshot', this.requestScreenshot.bind(this));
   }
 
   private healthCheck(req: Request, res: Response): void {
@@ -82,6 +89,82 @@ export class ApiController {
     res.status(200).json({
       success: true,
       message: 'Message broadcasted successfully',
+    });
+  }
+  
+  private sendMouseEvent(req: Request, res: Response): void {
+    const { clientId } = req.params;
+    const { action, x, y, button = 'left', double = false, amount = 0 } = req.body;
+    
+    if (!action) {
+      res.status(400).json({
+        error: 'Action is required',
+      });
+      return;
+    }
+    
+    this.wsService.sendMouseEvent(clientId, action, x, y, button, double, amount);
+    
+    res.status(200).json({
+      success: true,
+      message: `Mouse event sent to client ${clientId}`,
+    });
+  }
+  
+  private sendKeyboardEvent(req: Request, res: Response): void {
+    const { clientId } = req.params;
+    const { action, key, keys, text } = req.body;
+    
+    if (!action) {
+      res.status(400).json({
+        error: 'Action is required',
+      });
+      return;
+    }
+    
+    this.wsService.sendKeyboardEvent(clientId, action, key, keys, text);
+    
+    res.status(200).json({
+      success: true,
+      message: `Keyboard event sent to client ${clientId}`,
+    });
+  }
+  
+  private requestScreenSize(req: Request, res: Response): void {
+    const { clientId } = req.params;
+    
+    this.wsService.requestScreenSize(clientId);
+    
+    res.status(200).json({
+      success: true,
+      message: `Screen size requested from client ${clientId}`,
+    });
+  }
+  
+  private requestMousePosition(req: Request, res: Response): void {
+    const { clientId } = req.params;
+    
+    this.wsService.requestMousePosition(clientId);
+    
+    res.status(200).json({
+      success: true,
+      message: `Mouse position requested from client ${clientId}`,
+    });
+  }
+  
+  private requestScreenshot(req: Request, res: Response): void {
+    const { clientId } = req.params;
+    
+    // Send a takeScreenshot message to the client
+    this.wsService.sendToClient(clientId, {
+      type: 'takeScreenshot',
+      requestedBy: 'api',
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: `Screenshot requested from client ${clientId}`,
     });
   }
   

@@ -17,7 +17,25 @@ interface Client {
   version?: string;
   ipAddress?: string;
   screenshots?: Screenshot[];
+  screenWidth?: number;
+  screenHeight?: number;
+  mouseX?: number;
+  mouseY?: number;
 }
+
+// Add new message types for remote control
+const MessageTypes = {
+  WELCOME: 'welcome',
+  NOTIFICATION: 'notification',
+  CLIENT_LIST: 'clientList',
+  SERVER_INFO: 'serverInfo',
+  SCREENSHOT: 'screenshot',
+  TAKE_SCREENSHOT: 'takeScreenshot',
+  MOUSE_EVENT: 'mouseEvent',
+  KEYBOARD_EVENT: 'keyboardEvent',
+  SCREEN_SIZE: 'screenSize',
+  MOUSE_POSITION: 'mousePosition',
+};
 
 export class WebSocketService {
   private wss: WebSocket.Server;
@@ -28,7 +46,11 @@ export class WebSocketService {
     platform?: string,
     version?: string,
     ipAddress?: string,
-    screenshots: Screenshot[]
+    screenshots: Screenshot[],
+    screenWidth?: number,
+    screenHeight?: number,
+    mouseX?: number,
+    mouseY?: number
   }> = new Map();
   private clientIdCounter: number = 0;
   private startTime: Date = new Date();
@@ -56,7 +78,11 @@ export class WebSocketService {
         connectedAt, 
         type: 'regular',
         ipAddress,
-        screenshots: []
+        screenshots: [],
+        screenWidth: undefined,
+        screenHeight: undefined,
+        mouseX: undefined,
+        mouseY: undefined
       });
       
       console.log(`Client connected: ${clientId} from ${ipAddress}`);
@@ -166,7 +192,7 @@ export class WebSocketService {
           console.log(`Client ${clientId} registered as dashboard`);
           
           // Send updated client list and server info
-          this.sendClientList(clientId);
+          this.broadcastClientList();
           this.sendServerInfo(clientId);
         }
         break;
@@ -225,6 +251,29 @@ export class WebSocketService {
         }
         break;
         
+      case MessageTypes.SCREEN_SIZE:
+        // Handle screen size information from client
+        const clientWithScreenSize = this.clients.get(clientId);
+        if (clientWithScreenSize && message.width && message.height) {
+          clientWithScreenSize.screenWidth = message.width;
+          clientWithScreenSize.screenHeight = message.height;
+          this.clients.set(clientId, clientWithScreenSize);
+          
+          // Broadcast updated client list
+          this.broadcastClientList();
+        }
+        break;
+        
+      case MessageTypes.MOUSE_POSITION:
+        // Handle mouse position information from client
+        const clientWithMousePos = this.clients.get(clientId);
+        if (clientWithMousePos && message.x !== undefined && message.y !== undefined) {
+          clientWithMousePos.mouseX = message.x;
+          clientWithMousePos.mouseY = message.y;
+          this.clients.set(clientId, clientWithMousePos);
+        }
+        break;
+        
       default:
         // Echo back the message
         this.sendToClient(clientId, {
@@ -240,14 +289,18 @@ export class WebSocketService {
     // Get only regular clients (not dashboards)
     const clientList: Client[] = Array.from(this.clients.entries())
       .filter(([id, { type }]) => type === 'regular')
-      .map(([id, { connectedAt, type, platform, version, ipAddress, screenshots }]) => ({
+      .map(([id, { connectedAt, type, platform, version, ipAddress, screenshots, screenWidth, screenHeight, mouseX, mouseY }]) => ({
         id,
         connectedAt,
         type,
         platform,
         version,
         ipAddress,
-        screenshots
+        screenshots,
+        screenWidth,
+        screenHeight,
+        mouseX,
+        mouseY
       }));
     
     this.sendToClient(clientId, {
@@ -260,14 +313,18 @@ export class WebSocketService {
     // Get only regular clients (not dashboards)
     const clientList: Client[] = Array.from(this.clients.entries())
       .filter(([id, { type }]) => type === 'regular')
-      .map(([id, { connectedAt, type, platform, version, ipAddress, screenshots }]) => ({
+      .map(([id, { connectedAt, type, platform, version, ipAddress, screenshots, screenWidth, screenHeight, mouseX, mouseY }]) => ({
         id,
         connectedAt,
         type,
         platform,
         version,
         ipAddress,
-        screenshots
+        screenshots,
+        screenWidth,
+        screenHeight,
+        mouseX,
+        mouseY
       }));
     
     // Send to all dashboard clients
@@ -349,33 +406,103 @@ export class WebSocketService {
   }
   
   public getClients(): Client[] {
-    return Array.from(this.clients.entries()).map(([id, { connectedAt, type, platform, version, ipAddress, screenshots }]) => ({
+    return Array.from(this.clients.entries()).map(([id, { connectedAt, type, platform, version, ipAddress, screenshots, screenWidth, screenHeight, mouseX, mouseY }]) => ({
       id,
       connectedAt,
       type,
       platform,
       version,
       ipAddress,
-      screenshots
+      screenshots,
+      screenWidth,
+      screenHeight,
+      mouseX,
+      mouseY
     }));
   }
   
   public getRegularClients(): Client[] {
     return Array.from(this.clients.entries())
       .filter(([_, { type }]) => type === 'regular')
-      .map(([id, { connectedAt, type, platform, version, ipAddress, screenshots }]) => ({
+      .map(([id, { connectedAt, type, platform, version, ipAddress, screenshots, screenWidth, screenHeight, mouseX, mouseY }]) => ({
         id,
         connectedAt,
         type,
         platform,
         version,
         ipAddress,
-        screenshots
+        screenshots,
+        screenWidth,
+        screenHeight,
+        mouseX,
+        mouseY
       }));
   }
   
   public getMessageCount(): number {
     return this.messageCount;
+  }
+
+  // Send mouse event to client
+  public sendMouseEvent(clientId: string, action: string, x: number, y: number, button: string = 'left', double: boolean = false, amount: number = 0): void {
+    const client = this.clients.get(clientId);
+    if (!client || client.type !== 'regular') {
+      console.log(`Cannot send mouse event to client ${clientId}: client not found or not a regular client`);
+      return;
+    }
+    
+    this.sendToClient(clientId, {
+      type: MessageTypes.MOUSE_EVENT,
+      action,
+      x,
+      y,
+      button,
+      double,
+      amount
+    });
+  }
+
+  // Send keyboard event to client
+  public sendKeyboardEvent(clientId: string, action: string, key: string, keys?: string[], text?: string): void {
+    const client = this.clients.get(clientId);
+    if (!client || client.type !== 'regular') {
+      console.log(`Cannot send keyboard event to client ${clientId}: client not found or not a regular client`);
+      return;
+    }
+    
+    this.sendToClient(clientId, {
+      type: MessageTypes.KEYBOARD_EVENT,
+      action,
+      key,
+      keys,
+      text
+    });
+  }
+
+  // Request screen size from client
+  public requestScreenSize(clientId: string): void {
+    const client = this.clients.get(clientId);
+    if (!client || client.type !== 'regular') {
+      console.log(`Cannot request screen size from client ${clientId}: client not found or not a regular client`);
+      return;
+    }
+    
+    this.sendToClient(clientId, {
+      type: MessageTypes.SCREEN_SIZE
+    });
+  }
+
+  // Request mouse position from client
+  public requestMousePosition(clientId: string): void {
+    const client = this.clients.get(clientId);
+    if (!client || client.type !== 'regular') {
+      console.log(`Cannot request mouse position from client ${clientId}: client not found or not a regular client`);
+      return;
+    }
+    
+    this.sendToClient(clientId, {
+      type: MessageTypes.MOUSE_POSITION
+    });
   }
 }
 

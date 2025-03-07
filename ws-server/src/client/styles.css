@@ -379,4 +379,210 @@ body {
 .btn-secondary:hover {
   background-color: #5a6268;
   border-color: #545b62;
+}
+
+/* Remote Control Styles */
+.remote-control {
+  background-color: white;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.remote-control-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.remote-control-header h3 {
+  margin: 0;
+}
+
+.remote-control-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.screen-display {
+  position: relative;
+  margin-bottom: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  overflow: hidden;
+  background-color: #000;
+}
+
+.screen-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background-color: #000;
+  cursor: crosshair;
+}
+
+.screen-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+
+.screen-message {
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 3px;
+  font-size: 0.875rem;
+}
+
+.mouse-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.button-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.scroll-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.scroll-label {
+  font-size: 0.875rem;
+  color: var(--secondary-color);
+}
+
+.scroll-amount {
+  width: 50px;
+  padding: 0.25rem;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.position-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.position-inputs {
+  display: flex;
+  gap: 1rem;
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.input-group label {
+  font-size: 0.875rem;
+  color: var(--secondary-color);
+}
+
+.input-group input {
+  width: 60px;
+  padding: 0.25rem;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.action-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.text-input, .key-input {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.text-field, .key-field {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.virtual-keyboard {
+  margin-bottom: 1rem;
+}
+
+.key-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
+.keyboard-key {
+  min-width: 2rem;
+  height: 2rem;
+  margin: 0.125rem;
+  padding: 0.25rem;
+  background-color: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.keyboard-key:hover {
+  background-color: #e9ecef;
+}
+
+.key-space {
+  min-width: 8rem;
+}
+
+.key-enter, .key-backspace, .key-tab, .key-capslock, .key-shift {
+  min-width: 4rem;
+}
+
+.key-combinations {
+  margin-top: 1rem;
+}
+
+.key-combinations h4 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.combinations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+
+/* Modal Tabs Styles */
+.modal-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.5rem;
+}
+
+.modal-tabs .btn {
+  padding: 0.5rem 1rem;
 } 

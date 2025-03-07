@@ -21,6 +21,10 @@ interface Client {
   platform?: string;
   version?: string;
   ipAddress?: string;
+  screenWidth?: number;
+  screenHeight?: number;
+  mouseX?: number;
+  mouseY?: number;
 }
 
 interface ServerInfo {
@@ -28,6 +32,20 @@ interface ServerInfo {
   clientCount: number;
   messageCount: number;
 }
+
+// Message types
+const MessageTypes = {
+  WELCOME: 'welcome',
+  NOTIFICATION: 'notification',
+  CLIENT_LIST: 'clientList',
+  SERVER_INFO: 'serverInfo',
+  SCREENSHOT: 'screenshot',
+  TAKE_SCREENSHOT: 'takeScreenshot',
+  MOUSE_EVENT: 'mouseEvent',
+  KEYBOARD_EVENT: 'keyboardEvent',
+  SCREEN_SIZE: 'screenSize',
+  MOUSE_POSITION: 'mousePosition',
+};
 
 const App: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
@@ -79,6 +97,74 @@ const App: React.FC = () => {
     }
   }, [isConnected, sendMessage]);
 
+  // Send mouse event to client
+  const handleSendMouseEvent = useCallback((
+    targetClientId: string, 
+    action: string, 
+    x: number, 
+    y: number, 
+    button: string = 'left', 
+    double: boolean = false, 
+    amount: number = 0
+  ) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.MOUSE_EVENT,
+        targetClientId,
+        action,
+        x,
+        y,
+        button,
+        double,
+        amount
+      });
+      console.log(`Sent mouse event to client ${targetClientId}: ${action} at (${x},${y})`);
+    }
+  }, [isConnected, sendMessage]);
+
+  // Send keyboard event to client
+  const handleSendKeyboardEvent = useCallback((
+    targetClientId: string, 
+    action: string, 
+    key: string, 
+    keys?: string[], 
+    text?: string
+  ) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.KEYBOARD_EVENT,
+        targetClientId,
+        action,
+        key,
+        keys,
+        text
+      });
+      console.log(`Sent keyboard event to client ${targetClientId}: ${action} ${key}`);
+    }
+  }, [isConnected, sendMessage]);
+
+  // Request screen size from client
+  const handleRequestScreenSize = useCallback((targetClientId: string) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.SCREEN_SIZE,
+        targetClientId
+      });
+      console.log(`Requested screen size from client ${targetClientId}`);
+    }
+  }, [isConnected, sendMessage]);
+
+  // Request mouse position from client
+  const handleRequestMousePosition = useCallback((targetClientId: string) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.MOUSE_POSITION,
+        targetClientId
+      });
+      console.log(`Requested mouse position from client ${targetClientId}`);
+    }
+  }, [isConnected, sendMessage]);
+
   // Process WebSocket messages
   useEffect(() => {
     if (messages.length === 0) return;
@@ -104,20 +190,11 @@ const App: React.FC = () => {
       case 'clientList':
         // Update client list
         if (Array.isArray(latestMessage.clients)) {
-          // Add mock data for demonstration purposes
-          const enhancedClients = latestMessage.clients.map((client: Client) => ({
-            ...client,
-            platform: client.platform || ['Windows', 'macOS', 'Linux'][Math.floor(Math.random() * 3)],
-            version: client.version || `1.${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 10)}`,
-            ipAddress: client.ipAddress || `192.168.1.${Math.floor(Math.random() * 255)}`,
-            screenshots: client.screenshots || []
-          }));
-          
-          setClients(enhancedClients);
+          setClients(latestMessage.clients);
           
           // Update selected client if it exists in the new client list
           if (selectedClient) {
-            const updatedSelectedClient = enhancedClients.find(c => c.id === selectedClient.id);
+            const updatedSelectedClient = latestMessage.clients.find((c: Client) => c.id === selectedClient.id);
             if (updatedSelectedClient) {
               setSelectedClient(updatedSelectedClient);
             }
@@ -216,6 +293,10 @@ const App: React.FC = () => {
           client={selectedClient} 
           onClose={handleCloseClientDetails} 
           onRequestScreenshot={handleRequestScreenshot}
+          onSendMouseEvent={handleSendMouseEvent}
+          onSendKeyboardEvent={handleSendKeyboardEvent}
+          onRequestScreenSize={handleRequestScreenSize}
+          onRequestMousePosition={handleRequestMousePosition}
         />
       )}
     </div>
