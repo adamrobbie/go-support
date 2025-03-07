@@ -18,7 +18,7 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/adamrobbie/go-support/pkg/appid.AppVersion={{.Version}}
-    main: ./main.go
+    main: ./app
     binary: go-support
 
 archives:
@@ -35,7 +35,7 @@ archives:
     files:
       - README.md
       - LICENSE
-      - .env.example
+      - app/.env.example
     format_overrides:
       - goos: windows
         format: zip

@@ -13,11 +13,24 @@ A simple cross-platform command-line application that connects to a WebSocket se
 - Platform-specific application identification
 - Support for connecting to a TypeScript WebSocket server
 
+## Project Structure
+
+The project is organized into the following directories:
+
+- `app/`: Main Go application code
+- `client/`: WebSocket client implementation
+- `pkg/`: Shared packages
+  - `appid/`: Application identification
+  - `permissions/`: Permission management
+- `ws-server/`: TypeScript WebSocket server
+
 ## Installation
 
 ### Prerequisites
 
 - Go 1.21 or higher
+- Node.js 14.x or higher (for TypeScript WebSocket server)
+- npm 6.x or higher (for TypeScript WebSocket server)
 
 ### Setup
 
@@ -29,23 +42,23 @@ A simple cross-platform command-line application that connects to a WebSocket se
 
 2. Install dependencies:
    ```
-   go mod tidy
+   make deps
    ```
 
-3. Create a `.env` file in the project root with your WebSocket URLs:
+3. Create a `.env` file in the app directory with your WebSocket URLs:
+   ```
+   cd app
+   cp .env.example .env
+   ```
+   Then edit the `.env` file to set your WebSocket URLs:
    ```
    WEBSOCKET_URL=wss://your-websocket-server.com/ws
    TS_WEBSOCKET_URL=ws://localhost:8080
    ```
 
-4. (Optional) Set up the TypeScript WebSocket server:
-   ```
-   cd ws-server
-   npm install
-   npm run dev
-   ```
-
 ## Usage
+
+### Go Application
 
 Using the Makefile:
 
@@ -73,7 +86,7 @@ Or manually:
 
 ```bash
 # Build
-go build -o go-support .
+cd app && go build -o ../go-support .
 
 # Run
 ./go-support
@@ -89,6 +102,46 @@ go build -o go-support .
 
 # Use TypeScript WebSocket server with verbose logging
 ./go-support -use-ts-ws -verbose
+```
+
+### TypeScript WebSocket Server
+
+Using the Makefile:
+
+```bash
+# Install dependencies
+make ts-install
+
+# Build the server
+make ts-build
+
+# Start the server in development mode (with hot reloading)
+make ts-dev
+
+# Start the server in production mode
+make ts-start
+
+# Stop the server
+make ts-stop
+
+# Run both the Go application and TypeScript server together
+make run-all
+```
+
+Or manually:
+
+```bash
+# Install dependencies
+cd ws-server && npm install
+
+# Start in development mode
+cd ws-server && npm run dev
+
+# Build
+cd ws-server && npm run build
+
+# Start in production mode
+cd ws-server && npm start
 ```
 
 ## Command-line Options
@@ -139,14 +192,18 @@ To use the TypeScript WebSocket server:
 
 1. Start the server:
    ```
-   cd ws-server
-   npm run dev
+   make ts-dev
    ```
 
 2. Run the Go client with the `-use-ts-ws` flag:
    ```
-   ./go-support -use-ts-ws
+   make run-ts-ws
    ```
+
+Or run both together:
+```
+make run-all
+```
 
 For more information about the TypeScript WebSocket server, see the [ws-server README](ws-server/README.md).
 
@@ -173,7 +230,13 @@ The project includes a Makefile with common commands:
 - `make run-skip-permissions`: Run with permissions skipped
 - `make run-ts-ws`: Run with TypeScript WebSocket server
 - `make run-ts-ws-verbose`: Run with TypeScript WebSocket server and verbose logging
-- `make deps`: Update dependencies
+- `make ts-install`: Install TypeScript WebSocket server dependencies
+- `make ts-build`: Build the TypeScript WebSocket server
+- `make ts-dev`: Start the TypeScript WebSocket server in development mode
+- `make ts-start`: Start the TypeScript WebSocket server in production mode
+- `make ts-stop`: Stop the TypeScript WebSocket server
+- `make run-all`: Run both the Go application and TypeScript server together
+- `make deps`: Update dependencies for both Go and TypeScript
 - `make release-dry-run`: Test the release process with a snapshot build
 - `make release`: Create a release (requires a tag)
 - `make tag`: Create a new Git tag for release
@@ -203,7 +266,7 @@ The tests are organized by package:
 
 - `pkg/permissions`: Tests for the permission manager
 - `pkg/appid`: Tests for the application identifier
-- Root package: Tests for the main application logic
+- `app`: Tests for the main application logic
 
 ### Release Process
 
