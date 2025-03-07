@@ -1,0 +1,19 @@
+# Ignore Go files and directories
+*.go
+go.mod
+go.sum
+/app
+/cmd
+/pkg
+/dist/go-*
+/Contents
+/screenshots
+/robotgo-test
+/macos-test
+/mouse-test
+*.exe
+*.dll
+*.so
+*.dylib
+/vendor/
+/Godeps/ 
