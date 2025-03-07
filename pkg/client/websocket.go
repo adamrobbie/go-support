@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -70,6 +71,9 @@ func (c *WebSocketClient) Connect() error {
 	defer c.mu.Unlock()
 
 	if c.Connected {
+		if c.Verbose {
+			log.Printf("DEBUG: Already connected to WebSocket server at %s", c.URL)
+		}
 		return nil
 	}
 
@@ -78,11 +82,14 @@ func (c *WebSocketClient) Connect() error {
 	}
 
 	if c.Verbose {
-		log.Printf("Connecting to WebSocket server at %s...", c.URL)
+		log.Printf("DEBUG: Attempting to connect to WebSocket server at %s...", c.URL)
 	}
 
-	conn, _, err := dialer.Dial(c.URL, nil)
+	conn, resp, err := dialer.Dial(c.URL, nil)
 	if err != nil {
+		if resp != nil {
+			log.Printf("ERROR: Failed to connect to WebSocket server. Status code: %d", resp.StatusCode)
+		}
 		return fmt.Errorf("failed to connect to WebSocket server: %w", err)
 	}
 
@@ -90,7 +97,9 @@ func (c *WebSocketClient) Connect() error {
 	c.Connected = true
 
 	if c.Verbose {
-		log.Printf("Connected to WebSocket server at %s", c.URL)
+		log.Printf("DEBUG: Successfully connected to WebSocket server at %s", c.URL)
+		log.Printf("DEBUG: Connection details: Local: %s, Remote: %s",
+			conn.LocalAddr().String(), conn.RemoteAddr().String())
 	}
 
 	// Start message handler
@@ -149,7 +158,13 @@ func (c *WebSocketClient) SendJSON(message interface{}) error {
 	}
 
 	if c.Verbose {
-		log.Printf("Sending message: %+v", message)
+		// Convert to JSON for logging
+		jsonBytes, err := json.MarshalIndent(message, "", "  ")
+		if err != nil {
+			log.Printf("DEBUG: Sending message (failed to format for debug): %+v", message)
+		} else {
+			log.Printf("DEBUG: Sending JSON message: \n%s", string(jsonBytes))
+		}
 	}
 
 	return c.Conn.WriteJSON(message)
@@ -169,11 +184,17 @@ func (c *WebSocketClient) handleMessages() {
 			return
 		}
 
+		// Debug: Log raw message
+		if c.Verbose {
+			log.Printf("DEBUG: Raw message received: %s", string(message))
+		}
+
 		// Parse message to get type
 		var data map[string]interface{}
 		if err := json.Unmarshal(message, &data); err != nil {
 			if c.Verbose {
 				log.Printf("Error parsing message: %v", err)
+				log.Printf("Failed message content: %s", string(message))
 			}
 			continue
 		}
@@ -182,13 +203,13 @@ func (c *WebSocketClient) handleMessages() {
 		msgType, ok := data["type"].(string)
 		if !ok {
 			if c.Verbose {
-				log.Printf("Message has no type field")
+				log.Printf("Message has no type field: %+v", data)
 			}
 			continue
 		}
 
 		if c.Verbose {
-			log.Printf("Received message of type: %s", msgType)
+			log.Printf("Received message of type: %s with content: %+v", msgType, data)
 		}
 
 		// Call handler for message type
@@ -200,7 +221,11 @@ func (c *WebSocketClient) handleMessages() {
 				if c.Verbose {
 					log.Printf("Error handling message of type %s: %v", msgType, err)
 				}
+			} else if c.Verbose {
+				log.Printf("Successfully handled message of type: %s", msgType)
 			}
+		} else if c.Verbose {
+			log.Printf("No handler registered for message type: %s", msgType)
 		}
 	}
 }
@@ -216,13 +241,19 @@ func (c *WebSocketClient) SendMessage(msg Message) error {
 		return fmt.Errorf("error marshaling message: %w", err)
 	}
 
+	if c.Verbose {
+		// Pretty print for debugging
+		var prettyMsg bytes.Buffer
+		if err := json.Indent(&prettyMsg, data, "", "  "); err != nil {
+			log.Printf("DEBUG: Sending message (failed to format for debug): %+v", msg)
+		} else {
+			log.Printf("DEBUG: Sending message: \n%s", prettyMsg.String())
+		}
+	}
+
 	err = c.Conn.WriteMessage(websocket.TextMessage, data)
 	if err != nil {
 		return fmt.Errorf("error writing message: %w", err)
-	}
-
-	if c.Verbose {
-		log.Printf("Sent message: %s", string(data))
 	}
 
 	return nil

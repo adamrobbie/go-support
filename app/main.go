@@ -63,18 +63,21 @@ type App struct {
 
 // Message types
 const (
-	MessageTypeClientInfo     = "clientInfo"
-	MessageTypeScreenshot     = "screenshot"
-	MessageTypeTakeScreenshot = "takeScreenshot"
-	MessageTypeMouseEvent     = "mouseEvent"
-	MessageTypeKeyboardEvent  = "keyboardEvent"
-	MessageTypeScreenSize     = "screenSize"
-	MessageTypeMousePosition  = "mousePosition"
-	MessageTypeVideoFrame     = "videoFrame"
-	MessageTypeStartVideo     = "startVideo"
-	MessageTypeStopVideo      = "stopVideo"
-	MessageTypeStartRecording = "startRecording"
-	MessageTypeStopRecording  = "stopRecording"
+	MessageTypeClientInfo            = "clientInfo"
+	MessageTypeScreenshot            = "screenshot"
+	MessageTypeTakeScreenshot        = "takeScreenshot"
+	MessageTypeMouseEvent            = "mouseEvent"
+	MessageTypeKeyboardEvent         = "keyboardEvent"
+	MessageTypeScreenSize            = "screenSize"
+	MessageTypeMousePosition         = "mousePosition"
+	MessageTypeVideoFrame            = "videoFrame"
+	MessageTypeStartVideo            = "startVideo"
+	MessageTypeStopVideo             = "stopVideo"
+	MessageTypeStartRecording        = "startRecording"
+	MessageTypeStopRecording         = "stopRecording"
+	MessageTypeScreenRecordingStatus = "screenRecordingStatus" // New message type for screen recording status
+	MessageTypeScreenRecordingSaved  = "screenRecordingSaved"  // New message type for when recording is saved
+	MessageTypeGetRecordingStatus    = "getRecordingStatus"    // New message type for requesting recording status
 )
 
 // ScreenshotMessage represents a screenshot message to be sent to the server
@@ -91,6 +94,27 @@ type ClientInfoMessage struct {
 	Type     string `json:"type"`
 	Platform string `json:"platform"`
 	Version  string `json:"version"`
+}
+
+// dumpMessageTypes logs all available message types for debugging
+func dumpMessageTypes() {
+	log.Println("=== Available WebSocket Message Types ===")
+	log.Printf("ClientInfo:          %s", MessageTypeClientInfo)
+	log.Printf("Screenshot:          %s", MessageTypeScreenshot)
+	log.Printf("TakeScreenshot:      %s", MessageTypeTakeScreenshot)
+	log.Printf("MouseEvent:          %s", MessageTypeMouseEvent)
+	log.Printf("KeyboardEvent:       %s", MessageTypeKeyboardEvent)
+	log.Printf("ScreenSize:          %s", MessageTypeScreenSize)
+	log.Printf("MousePosition:       %s", MessageTypeMousePosition)
+	log.Printf("VideoFrame:          %s", MessageTypeVideoFrame)
+	log.Printf("StartVideo:          %s", MessageTypeStartVideo)
+	log.Printf("StopVideo:           %s", MessageTypeStopVideo)
+	log.Printf("StartRecording:      %s", MessageTypeStartRecording)
+	log.Printf("StopRecording:       %s", MessageTypeStopRecording)
+	log.Printf("ScreenRecordingStatus: %s", MessageTypeScreenRecordingStatus)
+	log.Printf("ScreenRecordingSaved:  %s", MessageTypeScreenRecordingSaved)
+	log.Printf("GetRecordingStatus:    %s", MessageTypeGetRecordingStatus)
+	log.Println("========================================")
 }
 
 func main() {
@@ -135,7 +159,14 @@ func main() {
 
 	// Load additional configuration from environment
 	if err := loadConfig(&config); err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error loading configuration: %v", err)
+	}
+
+	// Print configuration if verbose
+	if config.Verbose {
+		log.Printf("Configuration: %+v", config)
+		// Dump message types for debugging
+		dumpMessageTypes()
 	}
 
 	// Set up signal handling
@@ -431,36 +462,55 @@ func (a *App) connectWebSocket() error {
 
 	// Register message handlers
 	a.WSClient.RegisterHandler(MessageTypeTakeScreenshot, func(data []byte) error {
-		log.Println("Received screenshot request from server")
+		log.Println("DEBUG: Received screenshot request from server")
+
+		// Parse the full message for debugging
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err == nil && a.Config.Verbose {
+			log.Printf("DEBUG: Screenshot request details: %+v", msg)
+		}
+
 		return a.captureAndSendScreenshot(screenshot.High, "Requested screenshot")
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeMouseEvent, func(data []byte) error {
+		log.Println("DEBUG: Received mouse event from server")
+
 		var event remote.MouseEvent
 		if err := json.Unmarshal(data, &event); err != nil {
+			log.Printf("ERROR: Failed to parse mouse event: %v", err)
+			log.Printf("ERROR: Raw mouse event data: %s", string(data))
 			return fmt.Errorf("failed to parse mouse event: %w", err)
 		}
 
-		log.Printf("Received mouse event: %+v", event)
+		log.Printf("DEBUG: Mouse event details: %+v", event)
 		return a.RemoteController.ExecuteMouseEvent(event)
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeKeyboardEvent, func(data []byte) error {
+		log.Println("DEBUG: Received keyboard event from server")
+
 		var event remote.KeyboardEvent
 		if err := json.Unmarshal(data, &event); err != nil {
+			log.Printf("ERROR: Failed to parse keyboard event: %v", err)
+			log.Printf("ERROR: Raw keyboard event data: %s", string(data))
 			return fmt.Errorf("failed to parse keyboard event: %w", err)
 		}
 
-		log.Printf("Received keyboard event: %+v", event)
+		log.Printf("DEBUG: Keyboard event details: %+v", event)
 		return a.RemoteController.ExecuteKeyboardEvent(event)
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeScreenSize, func(data []byte) error {
+		log.Println("DEBUG: Received screen size request from server")
+
 		width, height, err := a.RemoteController.GetScreenSize()
 		if err != nil {
+			log.Printf("ERROR: Failed to get screen size: %v", err)
 			return fmt.Errorf("failed to get screen size: %w", err)
 		}
 
+		log.Printf("DEBUG: Sending screen size response: width=%d, height=%d", width, height)
 		message := map[string]interface{}{
 			"type":   MessageTypeScreenSize,
 			"width":  width,
@@ -471,11 +521,15 @@ func (a *App) connectWebSocket() error {
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeMousePosition, func(data []byte) error {
+		log.Println("DEBUG: Received mouse position request from server")
+
 		x, y, err := a.RemoteController.GetMousePosition()
 		if err != nil {
+			log.Printf("ERROR: Failed to get mouse position: %v", err)
 			return fmt.Errorf("failed to get mouse position: %w", err)
 		}
 
+		log.Printf("DEBUG: Sending mouse position response: x=%d, y=%d", x, y)
 		message := map[string]interface{}{
 			"type": MessageTypeMousePosition,
 			"x":    x,
@@ -487,24 +541,90 @@ func (a *App) connectWebSocket() error {
 
 	// Register video streaming handlers
 	a.WSClient.RegisterHandler(MessageTypeStartVideo, func(data []byte) error {
-		log.Println("Received start video streaming request from server")
-		return a.startVideoStreaming()
+		log.Println("DEBUG: Received start video streaming request from server")
+
+		// Parse the full message for debugging
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err == nil && a.Config.Verbose {
+			log.Printf("DEBUG: Start video request details: %+v", msg)
+		}
+
+		err := a.startVideoStreaming()
+		if err != nil {
+			log.Printf("ERROR: Failed to start video streaming: %v", err)
+		} else {
+			log.Println("DEBUG: Video streaming started successfully")
+		}
+		return err
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeStopVideo, func(data []byte) error {
-		log.Println("Received stop video streaming request from server")
+		log.Println("DEBUG: Received stop video streaming request from server")
+
+		// Parse the full message for debugging
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err == nil && a.Config.Verbose {
+			log.Printf("DEBUG: Stop video request details: %+v", msg)
+		}
+
 		a.stopVideoStreaming()
+		log.Println("DEBUG: Video streaming stopped successfully")
 		return nil
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeStartRecording, func(data []byte) error {
-		log.Println("Received start video recording request from server")
-		return a.startVideoRecording()
+		log.Println("DEBUG: Received start video recording request from server")
+
+		// Parse the full message for debugging
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err == nil && a.Config.Verbose {
+			log.Printf("DEBUG: Start recording request details: %+v", msg)
+		}
+
+		err := a.startVideoRecording()
+		if err != nil {
+			log.Printf("ERROR: Failed to start video recording: %v", err)
+		} else {
+			log.Println("DEBUG: Video recording started successfully")
+		}
+		return err
 	})
 
 	a.WSClient.RegisterHandler(MessageTypeStopRecording, func(data []byte) error {
-		log.Println("Received stop video recording request from server")
-		return a.stopVideoRecording()
+		log.Println("DEBUG: Received stop video recording request from server")
+
+		// Parse the full message for debugging
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err == nil && a.Config.Verbose {
+			log.Printf("DEBUG: Stop recording request details: %+v", msg)
+		}
+
+		err := a.stopVideoRecording()
+		if err != nil {
+			log.Printf("ERROR: Failed to stop video recording: %v", err)
+		} else {
+			log.Println("DEBUG: Video recording stopped successfully")
+		}
+		return err
+	})
+
+	// Register recording status request handler
+	a.WSClient.RegisterHandler(MessageTypeGetRecordingStatus, func(data []byte) error {
+		log.Println("DEBUG: Received recording status request from server")
+
+		// Parse the full message for debugging
+		var msg map[string]interface{}
+		if err := json.Unmarshal(data, &msg); err == nil && a.Config.Verbose {
+			log.Printf("DEBUG: Recording status request details: %+v", msg)
+		}
+
+		err := a.getRecordingStatus()
+		if err != nil {
+			log.Printf("ERROR: Failed to get recording status: %v", err)
+		} else {
+			log.Println("DEBUG: Recording status sent successfully")
+		}
+		return err
 	})
 
 	// Connect to the server
@@ -1126,6 +1246,18 @@ func (a *App) startVideoRecording() error {
 		return fmt.Errorf("failed to start video recording: %w", err)
 	}
 
+	// Send recording status update to the server
+	if a.WSClient != nil && a.WSClient.IsConnected() {
+		statusMsg := map[string]interface{}{
+			"type":      MessageTypeScreenRecordingStatus,
+			"status":    "recording",
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
+		if err := a.WSClient.SendJSON(statusMsg); err != nil {
+			log.Printf("Failed to send recording status update: %v", err)
+		}
+	}
+
 	log.Println("Started video recording")
 	return nil
 }
@@ -1143,6 +1275,19 @@ func (a *App) stopVideoRecording() error {
 
 	log.Printf("Stopped video recording, captured %d frames", len(frames))
 
+	// Send recording status update to the server
+	if a.WSClient != nil && a.WSClient.IsConnected() {
+		statusMsg := map[string]interface{}{
+			"type":      MessageTypeScreenRecordingStatus,
+			"status":    "stopped",
+			"frames":    len(frames),
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
+		if err := a.WSClient.SendJSON(statusMsg); err != nil {
+			log.Printf("Failed to send recording status update: %v", err)
+		}
+	}
+
 	// Save recording as images
 	timestamp := time.Now().Format("20060102-150405")
 	recordingDir := filepath.Join(a.Config.VideoRecordingDir, timestamp)
@@ -1152,6 +1297,20 @@ func (a *App) stopVideoRecording() error {
 
 	if err := a.VideoStream.SaveRecordingAsImages(recordingDir, "frame"); err != nil {
 		return fmt.Errorf("failed to save recording: %w", err)
+	}
+
+	// Send saved recording notification to the server
+	if a.WSClient != nil && a.WSClient.IsConnected() {
+		savedMsg := map[string]interface{}{
+			"type":        MessageTypeScreenRecordingSaved,
+			"directory":   recordingDir,
+			"frameCount":  len(frames),
+			"timestamp":   time.Now().Format(time.RFC3339),
+			"recordingId": timestamp,
+		}
+		if err := a.WSClient.SendJSON(savedMsg); err != nil {
+			log.Printf("Failed to send recording saved notification: %v", err)
+		}
 	}
 
 	log.Printf("Saved recording to %s", recordingDir)
@@ -1194,6 +1353,8 @@ func (a *App) handleRecordCommand(args []string) error {
 		return a.startVideoRecording()
 	case "stop":
 		return a.stopVideoRecording()
+	case "status":
+		return a.getRecordingStatus()
 	default:
 		return fmt.Errorf("unknown record command: %s", args[0])
 	}
@@ -1208,7 +1369,7 @@ func (a *App) printHelp() {
 	fmt.Println("  mouse <action> [params...] - Perform a mouse action")
 	fmt.Println("  key <action> [params...]   - Perform a keyboard action")
 	fmt.Println("  video <start|stop|status>  - Control video streaming")
-	fmt.Println("  record <start|stop>        - Control video recording")
+	fmt.Println("  record <start|stop|status> - Control video recording")
 	fmt.Println("  help                       - Show this help message")
 	fmt.Println("  exit, quit                 - Exit the application")
 }
@@ -1344,4 +1505,50 @@ func (a *App) handleKeyCommand(args []string) error {
 	default:
 		return fmt.Errorf("unknown key command: %s", action)
 	}
+}
+
+// getRecordingStatus gets the current recording status and sends it to the server
+func (a *App) getRecordingStatus() error {
+	if a.VideoStream == nil {
+		// Send status that no video stream is initialized
+		if a.WSClient != nil && a.WSClient.IsConnected() {
+			statusMsg := map[string]interface{}{
+				"type":      MessageTypeScreenRecordingStatus,
+				"status":    "not_initialized",
+				"timestamp": time.Now().Format(time.RFC3339),
+			}
+			return a.WSClient.SendJSON(statusMsg)
+		}
+		return nil
+	}
+
+	// Get recording status
+	isRecording := a.VideoStream.IsRecording()
+	isStreaming := a.VideoStream.IsStreaming()
+	frameCount := 0
+	if isRecording {
+		frameCount = a.VideoStream.GetFrameCount()
+	}
+
+	// Send status to the server
+	if a.WSClient != nil && a.WSClient.IsConnected() {
+		status := "idle"
+		if isRecording {
+			status = "recording"
+		} else if isStreaming {
+			status = "streaming"
+		}
+
+		statusMsg := map[string]interface{}{
+			"type":        MessageTypeScreenRecordingStatus,
+			"status":      status,
+			"isRecording": isRecording,
+			"isStreaming": isStreaming,
+			"frameCount":  frameCount,
+			"timestamp":   time.Now().Format(time.RFC3339),
+		}
+		return a.WSClient.SendJSON(statusMsg)
+	}
+
+	return nil
 }
