@@ -9,24 +9,26 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/adamrobbie/go-support/client"
 	"github.com/adamrobbie/go-support/pkg/appid"
 	"github.com/adamrobbie/go-support/pkg/permissions"
-	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 )
 
 // Config holds the application configuration
 type Config struct {
 	WebSocketURL    string
+	TSWebSocketURL  string // TypeScript WebSocket server URL
 	Verbose         bool
 	SkipPermissions bool
+	UseTypeScriptWS bool // Whether to use the TypeScript WebSocket server
 }
 
 // App represents the application
 type App struct {
 	Config      Config
 	PermManager permissions.Manager
-	WSConn      *websocket.Conn
+	WSClient    *client.WebSocketClient
 	Done        chan struct{}
 	Interrupt   chan os.Signal
 }
@@ -64,15 +66,24 @@ func loadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("WEBSOCKET_URL environment variable not set")
 	}
 
+	// Get TypeScript WebSocket URL from environment variable (default to localhost:8080)
+	tsWsURL := os.Getenv("TS_WEBSOCKET_URL")
+	if tsWsURL == "" {
+		tsWsURL = "ws://localhost:8080"
+	}
+
 	// Parse command line flags
 	verbose := flag.Bool("verbose", false, "Enable verbose logging")
 	skipPermissions := flag.Bool("skip-permissions", false, "Skip permission checks")
+	useTypeScriptWS := flag.Bool("use-ts-ws", false, "Use TypeScript WebSocket server")
 	flag.Parse()
 
 	return Config{
 		WebSocketURL:    wsURL,
+		TSWebSocketURL:  tsWsURL,
 		Verbose:         *verbose,
 		SkipPermissions: *skipPermissions,
+		UseTypeScriptWS: *useTypeScriptWS,
 	}, nil
 }
 
@@ -102,13 +113,9 @@ func (a *App) Run() error {
 	if err := a.connectWebSocket(); err != nil {
 		return err
 	}
-	defer a.WSConn.Close()
 
 	// Set up signal handling
 	signal.Notify(a.Interrupt, os.Interrupt, syscall.SIGTERM)
-
-	// Start reading messages
-	go a.readMessages()
 
 	// Main event loop
 	return a.eventLoop()
@@ -150,28 +157,25 @@ func (a *App) checkPermissions() error {
 
 // connectWebSocket connects to the WebSocket server
 func (a *App) connectWebSocket() error {
-	log.Printf("Connecting to WebSocket at %s", a.Config.WebSocketURL)
+	var wsURL string
 
-	conn, _, err := websocket.DefaultDialer.Dial(a.Config.WebSocketURL, nil)
-	if err != nil {
-		return fmt.Errorf("error connecting to WebSocket: %w", err)
-	}
+	if a.Config.UseTypeScriptWS {
+		wsURL = a.Config.TSWebSocketURL
+		log.Printf("Using TypeScript WebSocket server at %s", wsURL)
 
-	a.WSConn = conn
-	log.Println("Connected to WebSocket server")
-	return nil
-}
+		// Create and connect the WebSocket client
+		a.WSClient = client.NewWebSocketClient(wsURL, a.Config.Verbose)
+		return a.WSClient.Connect()
+	} else {
+		wsURL = a.Config.WebSocketURL
+		log.Printf("Using standard WebSocket server at %s", wsURL)
 
-// readMessages reads messages from the WebSocket connection
-func (a *App) readMessages() {
-	defer close(a.Done)
-	for {
-		_, message, err := a.WSConn.ReadMessage()
-		if err != nil {
-			log.Println("Error reading from WebSocket:", err)
-			return
-		}
-		fmt.Printf("Received: %s\n", message)
+		// Use the original WebSocket connection logic
+		log.Printf("Connecting to WebSocket at %s", wsURL)
+
+		// Create and connect the WebSocket client (but use it as a regular client)
+		a.WSClient = client.NewWebSocketClient(wsURL, a.Config.Verbose)
+		return a.WSClient.Connect()
 	}
 }
 
@@ -180,46 +184,31 @@ func (a *App) eventLoop() error {
 	ticker := time.NewTicker(time.Second * 30)
 	defer ticker.Stop()
 
+	// Clean up when done
+	defer func() {
+		if a.WSClient != nil {
+			a.WSClient.Close()
+		}
+	}()
+
 	for {
 		select {
-		case <-a.Done:
-			return nil
+		case msg := <-a.WSClient.Receive:
+			// Handle received messages
+			fmt.Printf("Received message: %+v\n", msg)
+
 		case <-ticker.C:
-			if err := a.sendPing(); err != nil {
-				return err
+			// Send a chat message periodically
+			if a.Config.UseTypeScriptWS {
+				a.WSClient.Send <- client.Message{
+					Type:    client.ChatMessage,
+					Message: "Hello from Go client!",
+				}
 			}
+
 		case <-a.Interrupt:
-			return a.gracefulShutdown()
+			log.Println("Interrupt received, shutting down...")
+			return nil
 		}
 	}
-}
-
-// sendPing sends a ping message to the WebSocket server
-func (a *App) sendPing() error {
-	err := a.WSConn.WriteMessage(websocket.TextMessage, []byte("ping"))
-	if err != nil {
-		return fmt.Errorf("error sending ping: %w", err)
-	}
-	if a.Config.Verbose {
-		log.Println("Sent ping")
-	}
-	return nil
-}
-
-// gracefulShutdown performs a graceful shutdown of the application
-func (a *App) gracefulShutdown() error {
-	log.Println("Interrupt received, closing connection...")
-
-	// Cleanly close the connection by sending a close message
-	err := a.WSConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-	if err != nil {
-		return fmt.Errorf("error during closing WebSocket: %w", err)
-	}
-
-	// Wait for the server to close the connection
-	select {
-	case <-a.Done:
-	case <-time.After(time.Second):
-	}
-	return nil
 }

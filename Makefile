@@ -1,4 +1,4 @@
-.PHONY: build clean test test-verbose test-coverage run release-dry-run release
+.PHONY: build clean test test-verbose test-coverage run run-verbose run-skip-permissions run-ts-ws release-dry-run release
 
 # Application name
 APP_NAME=go-support
@@ -52,6 +52,16 @@ run-verbose:
 run-skip-permissions:
 	$(GOBUILD) -o $(APP_NAME) .
 	./$(APP_NAME) -skip-permissions
+
+# Run with TypeScript WebSocket server
+run-ts-ws:
+	$(GOBUILD) -o $(APP_NAME) .
+	./$(APP_NAME) -use-ts-ws
+
+# Run with TypeScript WebSocket server and verbose logging
+run-ts-ws-verbose:
+	$(GOBUILD) -o $(APP_NAME) .
+	./$(APP_NAME) -use-ts-ws -verbose
 
 # Update dependencies
 deps:

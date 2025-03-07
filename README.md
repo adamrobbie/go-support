@@ -11,6 +11,7 @@ A simple cross-platform command-line application that connects to a WebSocket se
 - Verbose mode for additional logging
 - Cross-platform screen sharing permission management
 - Platform-specific application identification
+- Support for connecting to a TypeScript WebSocket server
 
 ## Installation
 
@@ -31,9 +32,17 @@ A simple cross-platform command-line application that connects to a WebSocket se
    go mod tidy
    ```
 
-3. Create a `.env` file in the project root with your WebSocket URL:
+3. Create a `.env` file in the project root with your WebSocket URLs:
    ```
    WEBSOCKET_URL=wss://your-websocket-server.com/ws
+   TS_WEBSOCKET_URL=ws://localhost:8080
+   ```
+
+4. (Optional) Set up the TypeScript WebSocket server:
+   ```
+   cd ws-server
+   npm install
+   npm run dev
    ```
 
 ## Usage
@@ -52,6 +61,12 @@ make run-verbose
 
 # Run with permissions skipped
 make run-skip-permissions
+
+# Run with TypeScript WebSocket server
+make run-ts-ws
+
+# Run with TypeScript WebSocket server and verbose logging
+make run-ts-ws-verbose
 ```
 
 Or manually:
@@ -68,12 +83,19 @@ go build -o go-support .
 
 # Skip permission checks
 ./go-support -skip-permissions
+
+# Use TypeScript WebSocket server
+./go-support -use-ts-ws
+
+# Use TypeScript WebSocket server with verbose logging
+./go-support -use-ts-ws -verbose
 ```
 
 ## Command-line Options
 
 - `-verbose`: Enable verbose logging
 - `-skip-permissions`: Skip screen sharing permission checks
+- `-use-ts-ws`: Use the TypeScript WebSocket server instead of the default WebSocket server
 
 ## Screen Sharing Permissions
 
@@ -105,12 +127,37 @@ The application sets up platform-specific identification to make it recognizable
 
 This allows the application to be properly recognized by the operating system, which is particularly useful when running through Cursor or other IDEs.
 
+## TypeScript WebSocket Server
+
+The application includes a TypeScript WebSocket server in the `ws-server` directory. This server provides:
+
+- WebSocket communication with JSON messages
+- RESTful API endpoints
+- Interactive test client
+
+To use the TypeScript WebSocket server:
+
+1. Start the server:
+   ```
+   cd ws-server
+   npm run dev
+   ```
+
+2. Run the Go client with the `-use-ts-ws` flag:
+   ```
+   ./go-support -use-ts-ws
+   ```
+
+For more information about the TypeScript WebSocket server, see the [ws-server README](ws-server/README.md).
+
 ## Development
 
 ### Requirements
 
 - Go 1.21+
 - GoReleaser (for releases)
+- Node.js 14+ (for TypeScript WebSocket server)
+- npm 6+ (for TypeScript WebSocket server)
 
 ### Makefile Commands
 
@@ -124,6 +171,8 @@ The project includes a Makefile with common commands:
 - `make run`: Build and run the application
 - `make run-verbose`: Run with verbose logging
 - `make run-skip-permissions`: Run with permissions skipped
+- `make run-ts-ws`: Run with TypeScript WebSocket server
+- `make run-ts-ws-verbose`: Run with TypeScript WebSocket server and verbose logging
 - `make deps`: Update dependencies
 - `make release-dry-run`: Test the release process with a snapshot build
 - `make release`: Create a release (requires a tag)
