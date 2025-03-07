@@ -22,6 +22,7 @@ import (
 	"github.com/adamrobbie/go-support/pkg/permissions"
 	"github.com/adamrobbie/go-support/pkg/remote"
 	"github.com/adamrobbie/go-support/pkg/screenshot"
+	"github.com/adamrobbie/go-support/pkg/video"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 )
@@ -39,6 +40,13 @@ type Config struct {
 	ScreenshotInterval int  // Interval in seconds between automatic screenshots
 	TestRobotgo        bool // Whether to run RobotGo tests
 	RequestPermissions bool // Whether to explicitly request permissions
+
+	// Video streaming options
+	VideoStreaming    bool   // Whether to enable video streaming
+	VideoQuality      string // Quality of the video stream (low, medium, high)
+	VideoFPS          int    // Frames per second for video streaming
+	VideoRecording    bool   // Whether to enable video recording
+	VideoRecordingDir string // Directory to save video recordings
 }
 
 // App represents the application
@@ -50,6 +58,7 @@ type App struct {
 	stopAutoScreenshot chan struct{} // Channel to stop automatic screenshots
 	Interrupt          chan os.Signal
 	RemoteController   *remote.RemoteController
+	VideoStream        *video.VideoStream
 }
 
 // Message types
@@ -61,6 +70,11 @@ const (
 	MessageTypeKeyboardEvent  = "keyboardEvent"
 	MessageTypeScreenSize     = "screenSize"
 	MessageTypeMousePosition  = "mousePosition"
+	MessageTypeVideoFrame     = "videoFrame"
+	MessageTypeStartVideo     = "startVideo"
+	MessageTypeStopVideo      = "stopVideo"
+	MessageTypeStartRecording = "startRecording"
+	MessageTypeStopRecording  = "stopRecording"
 )
 
 // ScreenshotMessage represents a screenshot message to be sent to the server
@@ -90,6 +104,14 @@ func main() {
 	screenshotInterval := flag.Int("screenshot-interval", 10, "Interval in seconds between automatic screenshots")
 	testRobotgo := flag.Bool("test-robotgo", false, "Test RobotGo functionality")
 	requestPermissions := flag.Bool("request-permissions", false, "Explicitly request permissions")
+
+	// Video streaming flags
+	videoStreaming := flag.Bool("video-streaming", false, "Enable video streaming")
+	videoQuality := flag.String("video-quality", "medium", "Quality of the video stream (low, medium, high)")
+	videoFPS := flag.Int("video-fps", 10, "Frames per second for video streaming")
+	videoRecording := flag.Bool("video-recording", false, "Enable video recording")
+	videoRecordingDir := flag.String("video-recording-dir", "recordings", "Directory to save video recordings")
+
 	flag.Parse()
 
 	// Create configuration
@@ -103,6 +125,13 @@ func main() {
 	config.ScreenshotInterval = *screenshotInterval
 	config.TestRobotgo = *testRobotgo
 	config.RequestPermissions = *requestPermissions
+
+	// Video streaming configuration
+	config.VideoStreaming = *videoStreaming
+	config.VideoQuality = *videoQuality
+	config.VideoFPS = *videoFPS
+	config.VideoRecording = *videoRecording
+	config.VideoRecordingDir = *videoRecordingDir
 
 	// Load additional configuration from environment
 	if err := loadConfig(&config); err != nil {
@@ -193,20 +222,22 @@ func (a *App) Run() error {
 
 	// Connect to WebSocket server
 	if err := a.connectWebSocket(); err != nil {
-		return err
+		return fmt.Errorf("failed to connect to WebSocket server: %w", err)
 	}
 
-	// Start automatic screenshot capture if enabled
+	// Initialize video streaming if enabled
+	if a.Config.VideoStreaming {
+		if err := a.initVideoStream(); err != nil {
+			return fmt.Errorf("failed to initialize video stream: %w", err)
+		}
+	}
+
+	// Start automatic screenshots if enabled
 	if a.Config.AutoScreenshot {
 		go a.startAutoScreenshot()
 	}
 
-	// Take a test screenshot
-	if err := a.takeTestScreenshot(); err != nil {
-		log.Printf("Warning: Failed to take test screenshot: %v", err)
-	}
-
-	// Run the event loop
+	// Start event loop
 	return a.eventLoop()
 }
 
@@ -454,6 +485,28 @@ func (a *App) connectWebSocket() error {
 		return a.WSClient.SendJSON(message)
 	})
 
+	// Register video streaming handlers
+	a.WSClient.RegisterHandler(MessageTypeStartVideo, func(data []byte) error {
+		log.Println("Received start video streaming request from server")
+		return a.startVideoStreaming()
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeStopVideo, func(data []byte) error {
+		log.Println("Received stop video streaming request from server")
+		a.stopVideoStreaming()
+		return nil
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeStartRecording, func(data []byte) error {
+		log.Println("Received start video recording request from server")
+		return a.startVideoRecording()
+	})
+
+	a.WSClient.RegisterHandler(MessageTypeStopRecording, func(data []byte) error {
+		log.Println("Received stop video recording request from server")
+		return a.stopVideoRecording()
+	})
+
 	// Connect to the server
 	if err := a.WSClient.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to WebSocket server: %w", err)
@@ -541,68 +594,94 @@ func (a *App) eventLoop() error {
 	}
 }
 
-// handleUserInput handles user input in interactive mode
+// handleUserInput handles user input from the console
 func (a *App) handleUserInput(scanner *bufio.Scanner) {
-	fmt.Println("\nInteractive mode enabled. Available commands:")
-	fmt.Println("  screenshot - Capture and send a screenshot")
-	fmt.Println("  region - Capture and send a region screenshot")
-	fmt.Println("  exit - Exit the application")
-	fmt.Println("Enter command:")
-
 	for scanner.Scan() {
 		input := scanner.Text()
-		parts := strings.Fields(input)
-
-		if len(parts) == 0 {
+		args := strings.Fields(input)
+		if len(args) == 0 {
 			continue
 		}
 
-		command := parts[0]
-
+		command := args[0]
 		switch command {
+		case "exit", "quit":
+			log.Println("Exiting...")
+			close(a.Done)
+			return
 		case "screenshot":
-			log.Println("Taking screenshot...")
-			err := a.captureAndSendScreenshot(screenshot.High, "Manual screenshot")
-			if err != nil {
-				log.Printf("Error taking screenshot: %v", err)
-			} else {
-				log.Println("Screenshot sent successfully")
+			quality := screenshot.Medium
+			if len(args) > 1 {
+				switch args[1] {
+				case "low":
+					quality = screenshot.Low
+				case "high":
+					quality = screenshot.High
+				}
 			}
-
+			if err := a.captureAndSendScreenshot(quality, "User-initiated screenshot"); err != nil {
+				log.Printf("Error capturing screenshot: %v", err)
+			}
 		case "region":
-			if len(parts) < 5 {
+			if len(args) < 5 {
 				log.Println("Usage: region <x> <y> <width> <height>")
 				continue
 			}
-
-			// Parse region parameters
-			x, y, width, height, err := parseRegionParams(parts[1:])
+			x, y, width, height, err := parseRegionParams(args[1:])
 			if err != nil {
 				log.Printf("Error parsing region parameters: %v", err)
 				continue
 			}
-
-			log.Printf("Taking region screenshot at (%d,%d) with size %dx%d...", x, y, width, height)
 			region := screenshot.Region{X: x, Y: y, Width: width, Height: height}
-			err = a.captureRegionAndSendScreenshot(region, screenshot.High, "Manual region screenshot")
-			if err != nil {
-				log.Printf("Error taking region screenshot: %v", err)
-			} else {
-				log.Println("Region screenshot sent successfully")
+			if err := a.captureRegionAndSendScreenshot(region, screenshot.High, "User-initiated region screenshot"); err != nil {
+				log.Printf("Error capturing region screenshot: %v", err)
 			}
-
-		case "exit":
-			a.Interrupt <- os.Interrupt
-			return
-
+		case "auto":
+			if len(args) > 1 && args[1] == "off" {
+				log.Println("Stopping automatic screenshots")
+				a.stopAutoScreenshot <- struct{}{}
+			} else {
+				log.Printf("Starting automatic screenshots every %d seconds", a.Config.ScreenshotInterval)
+				go a.startAutoScreenshot()
+			}
+		case "mouse":
+			if len(args) < 2 {
+				log.Println("Usage: mouse <action> [params...]")
+				continue
+			}
+			if err := a.handleMouseCommand(args[1:]); err != nil {
+				log.Printf("Error handling mouse command: %v", err)
+			}
+		case "key":
+			if len(args) < 2 {
+				log.Println("Usage: key <action> [params...]")
+				continue
+			}
+			if err := a.handleKeyCommand(args[1:]); err != nil {
+				log.Printf("Error handling key command: %v", err)
+			}
+		case "video":
+			if len(args) < 2 {
+				log.Println("Usage: video <start|stop>")
+				continue
+			}
+			if err := a.handleVideoCommand(args[1:]); err != nil {
+				log.Printf("Error handling video command: %v", err)
+			}
+		case "record":
+			if len(args) < 2 {
+				log.Println("Usage: record <start|stop>")
+				continue
+			}
+			if err := a.handleRecordCommand(args[1:]); err != nil {
+				log.Printf("Error handling record command: %v", err)
+			}
+		case "help":
+			a.printHelp()
 		default:
-			fmt.Println("Unknown command. Available commands:")
-			fmt.Println("  screenshot - Capture and send a screenshot")
-			fmt.Println("  region - Capture and send a region screenshot")
-			fmt.Println("  exit - Exit the application")
+			log.Printf("Unknown command: %s", command)
+			a.printHelp()
 		}
-
-		fmt.Println("Enter command:")
 	}
 }
 
@@ -954,4 +1033,315 @@ func boolToStatus(granted bool) string {
 		return "✅ Granted"
 	}
 	return "❌ Not Granted"
+}
+
+// initVideoStream initializes the video stream
+func (a *App) initVideoStream() error {
+	// Convert quality string to video.Quality
+	var quality video.Quality
+	switch a.Config.VideoQuality {
+	case "low":
+		quality = video.Low
+	case "high":
+		quality = video.High
+	default:
+		quality = video.Medium
+	}
+
+	// Create video stream
+	a.VideoStream = video.NewVideoStream(quality, a.Config.VideoFPS, a.Config.Verbose)
+
+	// Set callback for frame capture
+	a.VideoStream.SetOnFrameCapture(func(frameData []byte) error {
+		// Send frame to WebSocket server
+		if a.WSClient != nil && a.WSClient.IsConnected() {
+			message := map[string]interface{}{
+				"type":      MessageTypeVideoFrame,
+				"frameData": base64.StdEncoding.EncodeToString(frameData),
+				"timestamp": time.Now().Format(time.RFC3339),
+			}
+			return a.WSClient.SendJSON(message)
+		}
+		return nil
+	})
+
+	// Create video recording directory if needed
+	if a.Config.VideoRecording {
+		if err := os.MkdirAll(a.Config.VideoRecordingDir, 0755); err != nil {
+			return fmt.Errorf("failed to create video recording directory: %w", err)
+		}
+	}
+
+	// Start video streaming if enabled
+	if a.Config.VideoStreaming {
+		if err := a.VideoStream.StartStreaming(); err != nil {
+			return fmt.Errorf("failed to start video streaming: %w", err)
+		}
+	}
+
+	// Start video recording if enabled
+	if a.Config.VideoRecording {
+		if err := a.VideoStream.StartRecording(); err != nil {
+			return fmt.Errorf("failed to start video recording: %w", err)
+		}
+	}
+
+	log.Printf("Video stream initialized with quality %s at %d FPS", a.Config.VideoQuality, a.Config.VideoFPS)
+	return nil
+}
+
+// startVideoStreaming starts video streaming
+func (a *App) startVideoStreaming() error {
+	if a.VideoStream == nil {
+		if err := a.initVideoStream(); err != nil {
+			return err
+		}
+	}
+
+	if err := a.VideoStream.StartStreaming(); err != nil {
+		return fmt.Errorf("failed to start video streaming: %w", err)
+	}
+
+	log.Println("Started video streaming")
+	return nil
+}
+
+// stopVideoStreaming stops video streaming
+func (a *App) stopVideoStreaming() {
+	if a.VideoStream != nil {
+		a.VideoStream.StopStreaming()
+		log.Println("Stopped video streaming")
+	}
+}
+
+// startVideoRecording starts video recording
+func (a *App) startVideoRecording() error {
+	if a.VideoStream == nil {
+		if err := a.initVideoStream(); err != nil {
+			return err
+		}
+	}
+
+	if err := a.VideoStream.StartRecording(); err != nil {
+		return fmt.Errorf("failed to start video recording: %w", err)
+	}
+
+	log.Println("Started video recording")
+	return nil
+}
+
+// stopVideoRecording stops video recording and saves the recording
+func (a *App) stopVideoRecording() error {
+	if a.VideoStream == nil {
+		return fmt.Errorf("video stream not initialized")
+	}
+
+	frames, err := a.VideoStream.StopRecording()
+	if err != nil {
+		return fmt.Errorf("failed to stop video recording: %w", err)
+	}
+
+	log.Printf("Stopped video recording, captured %d frames", len(frames))
+
+	// Save recording as images
+	timestamp := time.Now().Format("20060102-150405")
+	recordingDir := filepath.Join(a.Config.VideoRecordingDir, timestamp)
+	if err := os.MkdirAll(recordingDir, 0755); err != nil {
+		return fmt.Errorf("failed to create recording directory: %w", err)
+	}
+
+	if err := a.VideoStream.SaveRecordingAsImages(recordingDir, "frame"); err != nil {
+		return fmt.Errorf("failed to save recording: %w", err)
+	}
+
+	log.Printf("Saved recording to %s", recordingDir)
+	return nil
+}
+
+// handleVideoCommand handles video streaming commands
+func (a *App) handleVideoCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no video command specified")
+	}
+
+	switch args[0] {
+	case "start":
+		return a.startVideoStreaming()
+	case "stop":
+		a.stopVideoStreaming()
+		return nil
+	case "status":
+		if a.VideoStream == nil {
+			log.Println("Video stream not initialized")
+		} else {
+			log.Printf("Video streaming: %v", a.VideoStream.IsStreaming())
+			log.Printf("Video recording: %v", a.VideoStream.IsRecording())
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown video command: %s", args[0])
+	}
+}
+
+// handleRecordCommand handles video recording commands
+func (a *App) handleRecordCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no record command specified")
+	}
+
+	switch args[0] {
+	case "start":
+		return a.startVideoRecording()
+	case "stop":
+		return a.stopVideoRecording()
+	default:
+		return fmt.Errorf("unknown record command: %s", args[0])
+	}
+}
+
+// printHelp prints the help message
+func (a *App) printHelp() {
+	fmt.Println("\nAvailable commands:")
+	fmt.Println("  screenshot [quality]       - Take a screenshot (quality: low, medium, high)")
+	fmt.Println("  region <x> <y> <w> <h>     - Take a screenshot of a specific region")
+	fmt.Println("  auto [off]                 - Start/stop automatic screenshots")
+	fmt.Println("  mouse <action> [params...] - Perform a mouse action")
+	fmt.Println("  key <action> [params...]   - Perform a keyboard action")
+	fmt.Println("  video <start|stop|status>  - Control video streaming")
+	fmt.Println("  record <start|stop>        - Control video recording")
+	fmt.Println("  help                       - Show this help message")
+	fmt.Println("  exit, quit                 - Exit the application")
+}
+
+// handleMouseCommand handles mouse commands
+func (a *App) handleMouseCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no mouse command specified")
+	}
+
+	action := args[0]
+	switch action {
+	case "move":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: mouse move <x> <y>")
+		}
+		x, err := strconv.Atoi(args[1])
+		if err != nil {
+			return fmt.Errorf("invalid x coordinate: %w", err)
+		}
+		y, err := strconv.Atoi(args[2])
+		if err != nil {
+			return fmt.Errorf("invalid y coordinate: %w", err)
+		}
+		return a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+			Action: remote.MouseMove,
+			X:      x,
+			Y:      y,
+		})
+	case "click":
+		button := remote.LeftButton
+		if len(args) > 1 {
+			switch args[1] {
+			case "right":
+				button = remote.RightButton
+			case "middle":
+				button = remote.MiddleButton
+			}
+		}
+		return a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+			Action: remote.MouseClick,
+			Button: button,
+		})
+	case "down":
+		button := remote.LeftButton
+		if len(args) > 1 {
+			switch args[1] {
+			case "right":
+				button = remote.RightButton
+			case "middle":
+				button = remote.MiddleButton
+			}
+		}
+		return a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+			Action: remote.MouseDown,
+			Button: button,
+		})
+	case "up":
+		button := remote.LeftButton
+		if len(args) > 1 {
+			switch args[1] {
+			case "right":
+				button = remote.RightButton
+			case "middle":
+				button = remote.MiddleButton
+			}
+		}
+		return a.RemoteController.ExecuteMouseEvent(remote.MouseEvent{
+			Action: remote.MouseUp,
+			Button: button,
+		})
+	case "position":
+		x, y, err := a.RemoteController.GetMousePosition()
+		if err != nil {
+			return fmt.Errorf("failed to get mouse position: %w", err)
+		}
+		log.Printf("Mouse position: (%d,%d)", x, y)
+		return nil
+	default:
+		return fmt.Errorf("unknown mouse command: %s", action)
+	}
+}
+
+// handleKeyCommand handles keyboard commands
+func (a *App) handleKeyCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("no key command specified")
+	}
+
+	action := args[0]
+	switch action {
+	case "press":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: key press <key>")
+		}
+		return a.RemoteController.ExecuteKeyboardEvent(remote.KeyboardEvent{
+			Action: remote.KeyPress,
+			Key:    args[1],
+		})
+	case "down":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: key down <key>")
+		}
+		return a.RemoteController.ExecuteKeyboardEvent(remote.KeyboardEvent{
+			Action: remote.KeyDown,
+			Key:    args[1],
+		})
+	case "up":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: key up <key>")
+		}
+		return a.RemoteController.ExecuteKeyboardEvent(remote.KeyboardEvent{
+			Action: remote.KeyUp,
+			Key:    args[1],
+		})
+	case "type":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: key type <text>")
+		}
+		text := strings.Join(args[1:], " ")
+		return a.RemoteController.ExecuteKeyboardEvent(remote.KeyboardEvent{
+			Action: remote.KeyType,
+			Text:   text,
+		})
+	case "combo":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: key combo <key1> <key2> ...")
+		}
+		return a.RemoteController.ExecuteKeyboardEvent(remote.KeyboardEvent{
+			Action: remote.KeyCombination,
+			Keys:   args[1:],
+		})
+	default:
+		return fmt.Errorf("unknown key command: %s", action)
+	}
 }

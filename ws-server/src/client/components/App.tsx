@@ -13,11 +13,17 @@ interface Screenshot {
   height: number;
 }
 
+interface VideoFrame {
+  frameData: string; // Base64 encoded image data
+  timestamp: string;
+}
+
 interface Client {
   id: string;
   connectedAt: string;
   type: 'dashboard' | 'regular';
   screenshots?: Screenshot[];
+  videoFrames?: VideoFrame[];
   platform?: string;
   version?: string;
   ipAddress?: string;
@@ -25,6 +31,8 @@ interface Client {
   screenHeight?: number;
   mouseX?: number;
   mouseY?: number;
+  isStreaming?: boolean;
+  isRecording?: boolean;
 }
 
 interface ServerInfo {
@@ -45,7 +53,15 @@ const MessageTypes = {
   KEYBOARD_EVENT: 'keyboardEvent',
   SCREEN_SIZE: 'screenSize',
   MOUSE_POSITION: 'mousePosition',
+  VIDEO_FRAME: 'videoFrame',
+  START_VIDEO: 'startVideo',
+  STOP_VIDEO: 'stopVideo',
+  START_RECORDING: 'startRecording',
+  STOP_RECORDING: 'stopRecording',
 };
+
+// Maximum number of video frames to keep per client
+const MAX_VIDEO_FRAMES = 100;
 
 const App: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
@@ -165,6 +181,146 @@ const App: React.FC = () => {
     }
   }, [isConnected, sendMessage]);
 
+  // Start video streaming from client
+  const handleStartVideoStream = useCallback((targetClientId: string) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.START_VIDEO,
+        targetClientId
+      });
+      console.log(`Requested to start video streaming from client ${targetClientId}`);
+      
+      // Update client's streaming status
+      setClients(prevClients => {
+        return prevClients.map(client => {
+          if (client.id === targetClientId) {
+            return {
+              ...client,
+              isStreaming: true
+            };
+          }
+          return client;
+        });
+      });
+      
+      // Update selected client if it's the one we're streaming from
+      if (selectedClient && selectedClient.id === targetClientId) {
+        setSelectedClient(prevSelected => {
+          if (!prevSelected) return null;
+          return {
+            ...prevSelected,
+            isStreaming: true
+          };
+        });
+      }
+    }
+  }, [isConnected, sendMessage, selectedClient]);
+
+  // Stop video streaming from client
+  const handleStopVideoStream = useCallback((targetClientId: string) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.STOP_VIDEO,
+        targetClientId
+      });
+      console.log(`Requested to stop video streaming from client ${targetClientId}`);
+      
+      // Update client's streaming status
+      setClients(prevClients => {
+        return prevClients.map(client => {
+          if (client.id === targetClientId) {
+            return {
+              ...client,
+              isStreaming: false
+            };
+          }
+          return client;
+        });
+      });
+      
+      // Update selected client if it's the one we're streaming from
+      if (selectedClient && selectedClient.id === targetClientId) {
+        setSelectedClient(prevSelected => {
+          if (!prevSelected) return null;
+          return {
+            ...prevSelected,
+            isStreaming: false
+          };
+        });
+      }
+    }
+  }, [isConnected, sendMessage, selectedClient]);
+
+  // Start recording from client
+  const handleStartRecording = useCallback((targetClientId: string) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.START_RECORDING,
+        targetClientId
+      });
+      console.log(`Requested to start recording from client ${targetClientId}`);
+      
+      // Update client's recording status
+      setClients(prevClients => {
+        return prevClients.map(client => {
+          if (client.id === targetClientId) {
+            return {
+              ...client,
+              isRecording: true
+            };
+          }
+          return client;
+        });
+      });
+      
+      // Update selected client if it's the one we're recording from
+      if (selectedClient && selectedClient.id === targetClientId) {
+        setSelectedClient(prevSelected => {
+          if (!prevSelected) return null;
+          return {
+            ...prevSelected,
+            isRecording: true
+          };
+        });
+      }
+    }
+  }, [isConnected, sendMessage, selectedClient]);
+
+  // Stop recording from client
+  const handleStopRecording = useCallback((targetClientId: string) => {
+    if (isConnected) {
+      sendMessage({
+        type: MessageTypes.STOP_RECORDING,
+        targetClientId
+      });
+      console.log(`Requested to stop recording from client ${targetClientId}`);
+      
+      // Update client's recording status
+      setClients(prevClients => {
+        return prevClients.map(client => {
+          if (client.id === targetClientId) {
+            return {
+              ...client,
+              isRecording: false
+            };
+          }
+          return client;
+        });
+      });
+      
+      // Update selected client if it's the one we're recording from
+      if (selectedClient && selectedClient.id === targetClientId) {
+        setSelectedClient(prevSelected => {
+          if (!prevSelected) return null;
+          return {
+            ...prevSelected,
+            isRecording: false
+          };
+        });
+      }
+    }
+  }, [isConnected, sendMessage, selectedClient]);
+
   // Process WebSocket messages
   useEffect(() => {
     if (messages.length === 0) return;
@@ -255,50 +411,166 @@ const App: React.FC = () => {
           }
         }
         break;
+      case MessageTypes.SCREEN_SIZE:
+        // Handle screen size message
+        if (latestMessage.clientId && latestMessage.width && latestMessage.height) {
+          setClients(prevClients => {
+            return prevClients.map(client => {
+              if (client.id === latestMessage.clientId) {
+                return {
+                  ...client,
+                  screenWidth: latestMessage.width,
+                  screenHeight: latestMessage.height
+                };
+              }
+              return client;
+            });
+          });
+          
+          // Update selected client if it's the one that sent the screen size
+          if (selectedClient && selectedClient.id === latestMessage.clientId) {
+            setSelectedClient(prevSelected => {
+              if (!prevSelected) return null;
+              return {
+                ...prevSelected,
+                screenWidth: latestMessage.width,
+                screenHeight: latestMessage.height
+              };
+            });
+          }
+        }
+        break;
+      case MessageTypes.MOUSE_POSITION:
+        // Handle mouse position message
+        if (latestMessage.clientId && latestMessage.x !== undefined && latestMessage.y !== undefined) {
+          setClients(prevClients => {
+            return prevClients.map(client => {
+              if (client.id === latestMessage.clientId) {
+                return {
+                  ...client,
+                  mouseX: latestMessage.x,
+                  mouseY: latestMessage.y
+                };
+              }
+              return client;
+            });
+          });
+          
+          // Update selected client if it's the one that sent the mouse position
+          if (selectedClient && selectedClient.id === latestMessage.clientId) {
+            setSelectedClient(prevSelected => {
+              if (!prevSelected) return null;
+              return {
+                ...prevSelected,
+                mouseX: latestMessage.x,
+                mouseY: latestMessage.y
+              };
+            });
+          }
+        }
+        break;
+      case MessageTypes.VIDEO_FRAME:
+        // Handle video frame message
+        if (latestMessage.clientId && latestMessage.frameData) {
+          setClients(prevClients => {
+            return prevClients.map(client => {
+              if (client.id === latestMessage.clientId) {
+                const newFrame: VideoFrame = {
+                  frameData: latestMessage.frameData,
+                  timestamp: latestMessage.timestamp || new Date().toISOString()
+                };
+                
+                // Keep only the last MAX_VIDEO_FRAMES frames
+                const existingFrames = client.videoFrames || [];
+                const newFrames = [...existingFrames, newFrame];
+                if (newFrames.length > MAX_VIDEO_FRAMES) {
+                  newFrames.shift(); // Remove oldest frame
+                }
+                
+                return {
+                  ...client,
+                  videoFrames: newFrames,
+                  isStreaming: true
+                };
+              }
+              return client;
+            });
+          });
+          
+          // Update selected client if it's the one that sent the video frame
+          if (selectedClient && selectedClient.id === latestMessage.clientId) {
+            setSelectedClient(prevSelected => {
+              if (!prevSelected) return null;
+              
+              const newFrame: VideoFrame = {
+                frameData: latestMessage.frameData,
+                timestamp: latestMessage.timestamp || new Date().toISOString()
+              };
+              
+              // Keep only the last MAX_VIDEO_FRAMES frames
+              const existingFrames = prevSelected.videoFrames || [];
+              const newFrames = [...existingFrames, newFrame];
+              if (newFrames.length > MAX_VIDEO_FRAMES) {
+                newFrames.shift(); // Remove oldest frame
+              }
+              
+              return {
+                ...prevSelected,
+                videoFrames: newFrames,
+                isStreaming: true
+              };
+            });
+          }
+        }
+        break;
       default:
         break;
     }
   }, [messages, selectedClient]);
 
-  // Register as dashboard when connected and we have a client ID
+  // Register as dashboard when connected
   useEffect(() => {
-    if (isConnected && clientId) {
+    if (isConnected) {
       registerAsDashboard();
     }
-  }, [isConnected, clientId, registerAsDashboard]);
+  }, [isConnected, registerAsDashboard]);
 
   return (
-    <div className="container">
-      <header className="header">
-        <h1>Go Support Dashboard</h1>
+    <div className="app">
+      <header className="app-header">
+        <h1>WebSocket Dashboard</h1>
+        <ConnectionStatus isConnected={isConnected} serverUrl={wsUrl} />
       </header>
-      
-      <ConnectionStatus isConnected={isConnected} serverUrl={wsUrl} />
-      
-      <div className="grid">
-        <ServerStats 
-          uptime={serverInfo.uptime}
-          clientCount={serverInfo.clientCount}
-          messageCount={serverInfo.messageCount}
-        />
-        
-        <ClientList 
-          clients={clients} 
-          onSelectClient={handleSelectClient} 
-        />
+      <div className="app-content">
+        <div className="sidebar">
+          <ServerStats 
+            uptime={serverInfo.uptime}
+            clientCount={serverInfo.clientCount}
+            messageCount={serverInfo.messageCount}
+          />
+          <ClientList 
+            clients={clients} 
+            onSelectClient={handleSelectClient} 
+          />
+        </div>
+        <div className="main-content">
+          {selectedClient && (
+            <ClientDetails 
+              client={selectedClient} 
+              onClose={handleCloseClientDetails} 
+              onRequestScreenshot={handleRequestScreenshot}
+              onSendMouseEvent={handleSendMouseEvent}
+              onSendKeyboardEvent={handleSendKeyboardEvent}
+              onRequestScreenSize={handleRequestScreenSize}
+              onRequestMousePosition={handleRequestMousePosition}
+              onStartVideoStream={handleStartVideoStream}
+              onStopVideoStream={handleStopVideoStream}
+              onStartRecording={handleStartRecording}
+              onStopRecording={handleStopRecording}
+            />
+          )}
+        </div>
       </div>
-      
-      {selectedClient && (
-        <ClientDetails 
-          client={selectedClient} 
-          onClose={handleCloseClientDetails} 
-          onRequestScreenshot={handleRequestScreenshot}
-          onSendMouseEvent={handleSendMouseEvent}
-          onSendKeyboardEvent={handleSendKeyboardEvent}
-          onRequestScreenSize={handleRequestScreenSize}
-          onRequestMousePosition={handleRequestMousePosition}
-        />
-      )}
     </div>
   );
 };

@@ -21,6 +21,8 @@ interface Client {
   screenHeight?: number;
   mouseX?: number;
   mouseY?: number;
+  isStreaming?: boolean;
+  isRecording?: boolean;
 }
 
 // Add new message types for remote control
@@ -35,6 +37,11 @@ const MessageTypes = {
   KEYBOARD_EVENT: 'keyboardEvent',
   SCREEN_SIZE: 'screenSize',
   MOUSE_POSITION: 'mousePosition',
+  VIDEO_FRAME: 'videoFrame',
+  START_VIDEO: 'startVideo',
+  STOP_VIDEO: 'stopVideo',
+  START_RECORDING: 'startRecording',
+  STOP_RECORDING: 'stopRecording',
 };
 
 export class WebSocketService {
@@ -50,7 +57,9 @@ export class WebSocketService {
     screenWidth?: number,
     screenHeight?: number,
     mouseX?: number,
-    mouseY?: number
+    mouseY?: number,
+    isStreaming?: boolean,
+    isRecording?: boolean
   }> = new Map();
   private clientIdCounter: number = 0;
   private startTime: Date = new Date();
@@ -82,7 +91,9 @@ export class WebSocketService {
         screenWidth: undefined,
         screenHeight: undefined,
         mouseX: undefined,
-        mouseY: undefined
+        mouseY: undefined,
+        isStreaming: false,
+        isRecording: false
       });
       
       console.log(`Client connected: ${clientId} from ${ipAddress}`);
@@ -274,6 +285,25 @@ export class WebSocketService {
         }
         break;
         
+      case MessageTypes.VIDEO_FRAME:
+        // Handle video frame message
+        if (message.frameData) {
+          // Update client streaming status
+          const client = this.clients.get(clientId);
+          if (client) {
+            client.isStreaming = true;
+          }
+          
+          // Forward video frame to all dashboard clients
+          this.broadcastToDashboards({
+            type: MessageTypes.VIDEO_FRAME,
+            clientId,
+            frameData: message.frameData,
+            timestamp: message.timestamp || new Date().toISOString()
+          });
+        }
+        break;
+        
       default:
         // Echo back the message
         this.sendToClient(clientId, {
@@ -443,6 +473,10 @@ export class WebSocketService {
     return this.messageCount;
   }
 
+  public clientExists(clientId: string): boolean {
+    return this.clients.has(clientId);
+  }
+
   // Send mouse event to client
   public sendMouseEvent(clientId: string, action: string, x: number, y: number, button: string = 'left', double: boolean = false, amount: number = 0): void {
     const client = this.clients.get(clientId);
@@ -503,6 +537,66 @@ export class WebSocketService {
     this.sendToClient(clientId, {
       type: MessageTypes.MOUSE_POSITION
     });
+  }
+
+  public startVideoStream(clientId: string): void {
+    this.sendToClient(clientId, {
+      type: MessageTypes.START_VIDEO
+    });
+    
+    // Update client streaming status
+    const client = this.clients.get(clientId);
+    if (client) {
+      client.isStreaming = true;
+      
+      // Notify dashboards of status change
+      this.broadcastClientList();
+    }
+  }
+
+  public stopVideoStream(clientId: string): void {
+    this.sendToClient(clientId, {
+      type: MessageTypes.STOP_VIDEO
+    });
+    
+    // Update client streaming status
+    const client = this.clients.get(clientId);
+    if (client) {
+      client.isStreaming = false;
+      
+      // Notify dashboards of status change
+      this.broadcastClientList();
+    }
+  }
+
+  public startRecording(clientId: string): void {
+    this.sendToClient(clientId, {
+      type: MessageTypes.START_RECORDING
+    });
+    
+    // Update client recording status
+    const client = this.clients.get(clientId);
+    if (client) {
+      client.isRecording = true;
+      
+      // Notify dashboards of status change
+      this.broadcastClientList();
+    }
+  }
+
+  public stopRecording(clientId: string): void {
+    this.sendToClient(clientId, {
+      type: MessageTypes.STOP_RECORDING
+    });
+    
+    // Update client recording status
+    const client = this.clients.get(clientId);
+    if (client) {
+      client.isRecording = false;
+      
+      // Notify dashboards of status change
+      this.broadcastClientList();
+    }
   }
 }
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ScreenshotPlayer from './ScreenshotPlayer';
 import RemoteControl from './RemoteControl';
+import VideoPlayer from './VideoPlayer';
 
 interface Screenshot {
   id: string;
@@ -10,11 +11,17 @@ interface Screenshot {
   height: number;
 }
 
+interface VideoFrame {
+  frameData: string; // Base64 encoded image data
+  timestamp: string;
+}
+
 interface Client {
   id: string;
   connectedAt: string;
   type: 'dashboard' | 'regular';
   screenshots?: Screenshot[];
+  videoFrames?: VideoFrame[];
   platform?: string;
   version?: string;
   ipAddress?: string;
@@ -22,6 +29,8 @@ interface Client {
   screenHeight?: number;
   mouseX?: number;
   mouseY?: number;
+  isStreaming?: boolean;
+  isRecording?: boolean;
 }
 
 interface ClientDetailsProps {
@@ -32,6 +41,10 @@ interface ClientDetailsProps {
   onSendKeyboardEvent: (clientId: string, action: string, key: string, keys?: string[], text?: string) => void;
   onRequestScreenSize: (clientId: string) => void;
   onRequestMousePosition: (clientId: string) => void;
+  onStartVideoStream: (clientId: string) => void;
+  onStopVideoStream: (clientId: string) => void;
+  onStartRecording: (clientId: string) => void;
+  onStopRecording: (clientId: string) => void;
 }
 
 const ClientDetails: React.FC<ClientDetailsProps> = ({ 
@@ -41,17 +54,25 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   onSendMouseEvent,
   onSendKeyboardEvent,
   onRequestScreenSize,
-  onRequestMousePosition
+  onRequestMousePosition,
+  onStartVideoStream,
+  onStopVideoStream,
+  onStartRecording,
+  onStopRecording
 }) => {
   const [viewMode, setViewMode] = useState<'grid' | 'video'>('grid');
-  const [activeTab, setActiveTab] = useState<'info' | 'control'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'control' | 'video'>('info');
   
   if (!client) {
     return null;
   }
 
   const screenshots = client.screenshots || [];
+  const videoFrames = client.videoFrames || [];
   const hasScreenshots = screenshots.length > 0;
+  const hasVideoFrames = videoFrames.length > 0;
+  const isStreaming = client.isStreaming || false;
+  const isRecording = client.isRecording || false;
 
   return (
     <div className="modal">
@@ -73,6 +94,12 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
             onClick={() => setActiveTab('control')}
           >
             Remote Control
+          </button>
+          <button 
+            className={`btn btn-sm ${activeTab === 'video' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('video')}
+          >
+            Video Stream
           </button>
         </div>
         
@@ -106,6 +133,14 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                     <tr>
                       <td>Screen Size:</td>
                       <td>{client.screenWidth && client.screenHeight ? `${client.screenWidth}×${client.screenHeight}` : 'Unknown'}</td>
+                    </tr>
+                    <tr>
+                      <td>Streaming:</td>
+                      <td>{isStreaming ? 'Yes' : 'No'}</td>
+                    </tr>
+                    <tr>
+                      <td>Recording:</td>
+                      <td>{isRecording ? 'Yes' : 'No'}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -170,7 +205,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 </button>
               </div>
             </>
-          ) : (
+          ) : activeTab === 'control' ? (
             <RemoteControl 
               clientId={client.id}
               screenWidth={client.screenWidth}
@@ -180,6 +215,71 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
               onRequestScreenSize={onRequestScreenSize}
               onRequestMousePosition={onRequestMousePosition}
             />
+          ) : (
+            <div className="video-stream-container">
+              <h3>Live Video Stream</h3>
+              
+              {hasVideoFrames ? (
+                <VideoPlayer 
+                  frames={videoFrames}
+                  width={800}
+                  height={450}
+                  autoPlay={true}
+                  fps={10}
+                  showControls={true}
+                />
+              ) : (
+                <p>No video frames available. Start streaming to see the live video.</p>
+              )}
+              
+              <div className="video-controls">
+                {!isStreaming ? (
+                  <button 
+                    className="btn btn-success" 
+                    onClick={() => onStartVideoStream(client.id)}
+                  >
+                    Start Streaming
+                  </button>
+                ) : (
+                  <button 
+                    className="btn btn-danger" 
+                    onClick={() => onStopVideoStream(client.id)}
+                  >
+                    Stop Streaming
+                  </button>
+                )}
+                
+                {!isRecording ? (
+                  <button 
+                    className="btn btn-success" 
+                    onClick={() => onStartRecording(client.id)}
+                    disabled={!isStreaming}
+                  >
+                    Start Recording
+                  </button>
+                ) : (
+                  <button 
+                    className="btn btn-danger" 
+                    onClick={() => onStopRecording(client.id)}
+                  >
+                    Stop Recording
+                  </button>
+                )}
+              </div>
+              
+              <div className="video-info">
+                <p>
+                  <strong>Status:</strong> {isStreaming ? 'Streaming' : 'Not Streaming'} 
+                  {isRecording ? ' (Recording)' : ''}
+                </p>
+                <p><strong>Frames Received:</strong> {videoFrames.length}</p>
+                {videoFrames.length > 0 && (
+                  <p>
+                    <strong>Last Frame:</strong> {new Date(videoFrames[videoFrames.length - 1].timestamp).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>

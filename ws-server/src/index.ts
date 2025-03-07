@@ -51,12 +51,33 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// Health check endpoint for Heroku
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: config.nodeEnv,
+    uptime: process.uptime()
+  });
+});
+
 // Start the server
 const PORT = parseInt(config.port, 10);
+const isHeroku = process.env.DYNO ? true : false;
+
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`WebSocket server available at ws://localhost:${PORT}`);
-  console.log(`HTTP API available at http://localhost:${PORT}`);
-  console.log(`Test client available at http://localhost:${PORT}`);
+  
+  if (isHeroku) {
+    console.log(`Running on Heroku`);
+    console.log(`WebSocket server available at wss://<your-app-name>.herokuapp.com`);
+    console.log(`HTTP API available at https://<your-app-name>.herokuapp.com/api`);
+    console.log(`Dashboard available at https://<your-app-name>.herokuapp.com`);
+  } else {
+    console.log(`WebSocket server available at ws://localhost:${PORT}`);
+    console.log(`HTTP API available at http://localhost:${PORT}/api`);
+    console.log(`Dashboard available at http://localhost:${PORT}`);
+  }
+  
   console.log(`Environment: ${config.nodeEnv}`);
 }); 

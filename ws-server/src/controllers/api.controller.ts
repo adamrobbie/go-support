@@ -33,6 +33,12 @@ export class ApiController {
     this.router.get('/clients/:clientId/screen-size', this.requestScreenSize.bind(this));
     this.router.get('/clients/:clientId/mouse-position', this.requestMousePosition.bind(this));
     this.router.post('/clients/:clientId/screenshot', this.requestScreenshot.bind(this));
+    
+    // Video streaming endpoints
+    this.router.post('/clients/:clientId/video/start', this.startVideoStream.bind(this));
+    this.router.post('/clients/:clientId/video/stop', this.stopVideoStream.bind(this));
+    this.router.post('/clients/:clientId/video/record/start', this.startRecording.bind(this));
+    this.router.post('/clients/:clientId/video/record/stop', this.stopRecording.bind(this));
   }
 
   private healthCheck(req: Request, res: Response): void {
@@ -153,18 +159,104 @@ export class ApiController {
   }
   
   private requestScreenshot(req: Request, res: Response): void {
-    const { clientId } = req.params;
+    const clientId = req.params.clientId;
     
-    // Send a takeScreenshot message to the client
+    if (!this.wsService.clientExists(clientId)) {
+      res.status(404).json({
+        error: 'Client not found',
+        clientId,
+      });
+      return;
+    }
+    
     this.wsService.sendToClient(clientId, {
       type: 'takeScreenshot',
-      requestedBy: 'api',
-      timestamp: new Date().toISOString()
     });
     
     res.status(200).json({
-      success: true,
-      message: `Screenshot requested from client ${clientId}`,
+      message: 'Screenshot request sent',
+      clientId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  private startVideoStream(req: Request, res: Response): void {
+    const clientId = req.params.clientId;
+    
+    if (!this.wsService.clientExists(clientId)) {
+      res.status(404).json({
+        error: 'Client not found',
+        clientId,
+      });
+      return;
+    }
+    
+    this.wsService.startVideoStream(clientId);
+    
+    res.status(200).json({
+      message: 'Video stream start request sent',
+      clientId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  private stopVideoStream(req: Request, res: Response): void {
+    const clientId = req.params.clientId;
+    
+    if (!this.wsService.clientExists(clientId)) {
+      res.status(404).json({
+        error: 'Client not found',
+        clientId,
+      });
+      return;
+    }
+    
+    this.wsService.stopVideoStream(clientId);
+    
+    res.status(200).json({
+      message: 'Video stream stop request sent',
+      clientId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  private startRecording(req: Request, res: Response): void {
+    const clientId = req.params.clientId;
+    
+    if (!this.wsService.clientExists(clientId)) {
+      res.status(404).json({
+        error: 'Client not found',
+        clientId,
+      });
+      return;
+    }
+    
+    this.wsService.startRecording(clientId);
+    
+    res.status(200).json({
+      message: 'Recording start request sent',
+      clientId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  private stopRecording(req: Request, res: Response): void {
+    const clientId = req.params.clientId;
+    
+    if (!this.wsService.clientExists(clientId)) {
+      res.status(404).json({
+        error: 'Client not found',
+        clientId,
+      });
+      return;
+    }
+    
+    this.wsService.stopRecording(clientId);
+    
+    res.status(200).json({
+      message: 'Recording stop request sent',
+      clientId,
+      timestamp: new Date().toISOString(),
     });
   }
   

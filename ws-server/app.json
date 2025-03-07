@@ -1,0 +1,30 @@
+{
+  "name": "Go Support WebSocket Server",
+  "description": "A WebSocket server for the Go Support application, providing real-time communication between clients and the dashboard.",
+  "repository": "https://github.com/adamrobbie/go-support",
+  "keywords": ["node", "express", "websocket", "typescript", "react"],
+  "success_url": "/",
+  "env": {
+    "NODE_ENV": {
+      "description": "Environment for the application",
+      "value": "production"
+    },
+    "ALLOWED_ORIGINS": {
+      "description": "Comma-separated list of allowed origins for CORS",
+      "value": "",
+      "required": false
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "standard-1x"
+    }
+  },
+  "addons": []
+} 
