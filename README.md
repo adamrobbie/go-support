@@ -119,6 +119,8 @@ The project includes a Makefile with common commands:
 - `make build`: Build the application
 - `make clean`: Clean build artifacts
 - `make test`: Run tests
+- `make test-verbose`: Run tests with verbose output
+- `make test-coverage`: Run tests with coverage and open the coverage report
 - `make run`: Build and run the application
 - `make run-verbose`: Run with verbose logging
 - `make run-skip-permissions`: Run with permissions skipped
@@ -126,6 +128,33 @@ The project includes a Makefile with common commands:
 - `make release-dry-run`: Test the release process with a snapshot build
 - `make release`: Create a release (requires a tag)
 - `make tag`: Create a new Git tag for release
+
+### Testing
+
+The application includes a comprehensive test suite:
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+make test-verbose
+
+# Run tests with coverage and open the coverage report
+make test-coverage
+```
+
+The test suite includes:
+
+- **Unit tests**: Test individual functions and methods
+- **Integration tests**: Test the interaction between components
+- **Mock implementations**: Test components in isolation
+
+The tests are organized by package:
+
+- `pkg/permissions`: Tests for the permission manager
+- `pkg/appid`: Tests for the application identifier
+- Root package: Tests for the main application logic
 
 ### Release Process
 

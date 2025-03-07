@@ -1,4 +1,4 @@
-.PHONY: build clean test run release-dry-run release
+.PHONY: build clean test test-verbose test-coverage run release-dry-run release
 
 # Application name
 APP_NAME=go-support
@@ -23,10 +23,20 @@ clean:
 	$(GOCLEAN)
 	rm -f $(APP_NAME)
 	rm -rf dist/
+	rm -f coverage.out
 
 # Run tests
 test:
 	$(GOTEST) -v ./...
+
+# Run tests with verbose output
+test-verbose:
+	$(GOTEST) -v -count=1 ./...
+
+# Run tests with coverage
+test-coverage:
+	$(GOTEST) -v -coverprofile=coverage.out ./...
+	$(GOCMD) tool cover -html=coverage.out
 
 # Run the application
 run:

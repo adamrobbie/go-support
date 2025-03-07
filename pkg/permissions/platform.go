@@ -23,13 +23,13 @@ func requestMacOSScreenSharePermission() (PermissionStatus, error) {
 	}
 
 	// Request permission by showing a dialog to the user
-	fmt.Println("\n=== Screen Recording Permission Required ===")
+	fmt.Println("=== Screen Recording Permission Required ===")
 	fmt.Println("This application needs screen recording permission to function properly.")
 	fmt.Println("Please follow these steps:")
 	fmt.Println("1. Click 'OK' when the system dialog appears")
 	fmt.Println("2. Check the box next to this application in the Screen Recording section")
 	fmt.Println("3. Click 'Quit & Reopen' if prompted, or manually close and reopen the app")
-	fmt.Println("=======================================\n")
+	fmt.Println("=======================================")
 
 	// Open the System Preferences to the Screen Recording section
 	openCmd := exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")

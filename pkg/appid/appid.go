@@ -21,6 +21,9 @@ const (
 	AppDescription = "A cross-platform WebSocket client with screen sharing capabilities"
 )
 
+// For testing purposes, we can replace this with a mock
+var osUserHomeDir = os.UserHomeDir
+
 // SetupAppIdentifier configures the application identifier for the current platform
 func SetupAppIdentifier() error {
 	switch runtime.GOOS {
@@ -67,7 +70,7 @@ func setupLinuxIdentifier() error {
 	fmt.Printf("Version: %s\n", AppVersion)
 
 	// Create a desktop entry file in the user's local applications directory
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := osUserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
