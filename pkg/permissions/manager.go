@@ -9,6 +9,11 @@ import (
 // PermissionType represents different types of permissions
 type PermissionType string
 
+// String returns the string representation of PermissionType
+func (p PermissionType) String() string {
+	return string(p)
+}
+
 const (
 	// ScreenShare permission for screen sharing
 	ScreenShare PermissionType = "screen_share"
@@ -17,6 +22,22 @@ const (
 
 // PermissionStatus represents the status of a permission
 type PermissionStatus int
+
+// String returns the string representation of PermissionStatus
+func (p PermissionStatus) String() string {
+	switch p {
+	case Unknown:
+		return "Unknown"
+	case Granted:
+		return "Granted"
+	case Denied:
+		return "Denied"
+	case Requested:
+		return "Requested"
+	default:
+		return fmt.Sprintf("Unknown Status: %d", p)
+	}
+}
 
 const (
 	// Unknown permission status is not determined

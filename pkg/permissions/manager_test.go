@@ -42,6 +42,29 @@ func TestDefaultManagerCheckPermission(t *testing.T) {
 	if status != Granted {
 		t.Errorf("CheckPermission() returned wrong status: got %v, want %v", status, Granted)
 	}
+
+	// Test with different permission statuses
+	testCases := []struct {
+		name   string
+		status PermissionStatus
+	}{
+		{"Denied", Denied},
+		{"Requested", Requested},
+		{"Unknown", Unknown},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			manager.permissions[ScreenShare] = tc.status
+			status, err := manager.CheckPermission(ScreenShare)
+			if err != nil {
+				t.Errorf("CheckPermission() returned an error: %v", err)
+			}
+			if status != tc.status {
+				t.Errorf("CheckPermission() returned wrong status: got %v, want %v", status, tc.status)
+			}
+		})
+	}
 }
 
 func TestDefaultManagerRequestPermission(t *testing.T) {
@@ -124,5 +147,58 @@ func TestMockManager(t *testing.T) {
 	}
 	if status != Requested {
 		t.Errorf("RequestPermission() with custom function returned wrong status: got %v, want %v", status, Requested)
+	}
+
+	// Test error cases
+	mockManager.SetCheckFunc(func(permType PermissionType) (PermissionStatus, error) {
+		return Unknown, errors.New("check error")
+	})
+
+	_, err = mockManager.CheckPermission(ScreenShare)
+	if err == nil {
+		t.Error("CheckPermission() with error function should return an error")
+	}
+
+	mockManager.SetRequestFunc(func(permType PermissionType) (PermissionStatus, error) {
+		return Unknown, errors.New("request error")
+	})
+
+	_, err = mockManager.RequestPermission(ScreenShare)
+	if err == nil {
+		t.Error("RequestPermission() with error function should return an error")
+	}
+}
+
+// TestPermissionTypeString tests the string representation of PermissionType
+func TestPermissionTypeString(t *testing.T) {
+	if ScreenShare.String() != "screen_share" {
+		t.Errorf("ScreenShare.String() = %v, want %v", ScreenShare.String(), "screen_share")
+	}
+
+	customType := PermissionType("custom_type")
+	if customType.String() != "custom_type" {
+		t.Errorf("customType.String() = %v, want %v", customType.String(), "custom_type")
+	}
+}
+
+// TestPermissionStatusString tests the string representation of PermissionStatus
+func TestPermissionStatusString(t *testing.T) {
+	testCases := []struct {
+		status PermissionStatus
+		want   string
+	}{
+		{Unknown, "Unknown"},
+		{Granted, "Granted"},
+		{Denied, "Denied"},
+		{Requested, "Requested"},
+		{PermissionStatus(99), "Unknown Status: 99"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.want, func(t *testing.T) {
+			if tc.status.String() != tc.want {
+				t.Errorf("PermissionStatus(%d).String() = %v, want %v", tc.status, tc.status.String(), tc.want)
+			}
+		})
 	}
 }

@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+// For testing purposes, we can replace these with mocks
+var (
+	execCommand  = exec.Command
+	execLookPath = exec.LookPath
+	osRemove     = os.Remove
+)
+
 // requestMacOSScreenSharePermission requests screen sharing permission on macOS
 func requestMacOSScreenSharePermission() (PermissionStatus, error) {
 	if runtime.GOOS != "darwin" {
@@ -32,7 +39,7 @@ func requestMacOSScreenSharePermission() (PermissionStatus, error) {
 	fmt.Println("=======================================")
 
 	// Open the System Preferences to the Screen Recording section
-	openCmd := exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+	openCmd := execCommand("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
 	if err := openCmd.Run(); err != nil {
 		return Denied, fmt.Errorf("failed to open system preferences: %w", err)
 	}
@@ -73,11 +80,11 @@ func requestMacOSScreenSharePermission() (PermissionStatus, error) {
 func checkMacOSScreenCapturePermission() bool {
 	// Try to capture a 1x1 pixel screenshot as a test
 	// This will trigger the permission check if not already granted
-	cmd := exec.Command("screencapture", "-x", "-t", "png", "-R", "0,0,1,1", "/tmp/permission_test.png")
+	cmd := execCommand("screencapture", "-x", "-t", "png", "-R", "0,0,1,1", "/tmp/permission_test.png")
 	err := cmd.Run()
 
 	// Clean up the test file
-	os.Remove("/tmp/permission_test.png")
+	osRemove("/tmp/permission_test.png")
 
 	// If the command succeeded, we have permission
 	return err == nil
@@ -96,7 +103,7 @@ func requestWindowsScreenSharePermission() (PermissionStatus, error) {
 	fmt.Println("Please ensure screen capture is enabled in Windows Settings > Privacy > Camera")
 
 	// Open Windows Settings to the relevant privacy section
-	cmd := exec.Command("start", "ms-settings:privacy-screenrecording")
+	cmd := execCommand("start", "ms-settings:privacy-screenrecording")
 	if err := cmd.Run(); err != nil {
 		return Denied, fmt.Errorf("failed to open Windows settings: %w", err)
 	}
@@ -121,13 +128,13 @@ func requestLinuxScreenSharePermission() (PermissionStatus, error) {
 	fmt.Println("Screen sharing permission is required.")
 
 	// Check if we have XDG-based desktop environment
-	_, err := exec.LookPath("xdg-open")
+	_, err := execLookPath("xdg-open")
 	if err == nil {
 		fmt.Println("Please ensure your desktop environment allows screen sharing.")
 
 		// Some desktop environments might have specific settings
 		// Try to open the relevant settings if possible
-		openCmd := exec.Command("xdg-open", "settings://privacy")
+		openCmd := execCommand("xdg-open", "settings://privacy")
 		_ = openCmd.Run() // Ignore errors as this might not work on all desktop environments
 	} else {
 		fmt.Println("Please ensure your window manager or desktop environment allows screen sharing.")
