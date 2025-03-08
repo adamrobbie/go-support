@@ -82,7 +82,7 @@ func (rc *RemoteController) GetScreenSize() (int, int, error) {
 		return 0, 0, err
 	}
 
-	width, height := robotgo.GetScreenSize()
+	width, height := robotgoGetScreenSizeFunc()
 	return width, height, nil
 }
 
@@ -93,7 +93,7 @@ func (rc *RemoteController) GetMousePosition() (int, int, error) {
 		return 0, 0, err
 	}
 
-	x, y := robotgo.GetMousePos()
+	x, y := robotgoGetMousePosFunc()
 	return x, y, nil
 }
 
@@ -113,81 +113,32 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 	case MouseMove:
 		log.Printf("Moving mouse to (%d,%d)", event.X, event.Y)
 
-		// Try multiple movement methods in sequence
+		err := executeMouseMove(event.X, event.Y)
+		if err != nil && rc.verbose {
+			log.Printf("Mouse move failed: %v", err)
 
-		// Method 1: Basic Move
-		robotgo.Move(event.X, event.Y)
-
-		// Verify position
-		x, y := robotgo.GetMousePos()
-		if x == event.X && y == event.Y {
-			if rc.verbose {
-				log.Printf("Basic Move successful, mouse at (%d,%d)", x, y)
-			}
-			return nil
-		}
-
-		if rc.verbose {
-			log.Printf("Basic Move failed, mouse at (%d,%d), trying MoveSmooth", x, y)
-		}
-
-		// Method 2: MoveSmooth
-		robotgo.MoveMouseSmooth(event.X, event.Y, 1.0, 1.0)
-
-		// Verify position
-		x, y = robotgo.GetMousePos()
-		if x == event.X && y == event.Y {
-			if rc.verbose {
-				log.Printf("MoveSmooth successful, mouse at (%d,%d)", x, y)
-			}
-			return nil
-		}
-
-		if rc.verbose {
-			log.Printf("MoveSmooth failed, mouse at (%d,%d), trying DragSmooth", x, y)
-		}
-
-		// Method 3: DragSmooth
-		robotgo.DragSmooth(event.X, event.Y)
-
-		// Verify position
-		x, y = robotgo.GetMousePos()
-		if x == event.X && y == event.Y {
-			if rc.verbose {
-				log.Printf("DragSmooth successful, mouse at (%d,%d)", x, y)
-			}
-			return nil
-		}
-
-		// Method 4: macOS-specific AppleScript fallback (only on macOS)
-		if runtime.GOOS == "darwin" {
-			if rc.verbose {
+			// Method 4: macOS-specific AppleScript fallback (only on macOS)
+			if runtime.GOOS == "darwin" {
 				log.Printf("All RobotGo methods failed, trying macOS-specific fallback")
-			}
 
-			err := macOSMoveMouse(event.X, event.Y, rc.verbose)
-			if err != nil {
-				if rc.verbose {
+				err := macOSMoveMouse(event.X, event.Y, rc.verbose)
+				if err != nil {
 					log.Printf("macOS fallback failed: %v", err)
-				}
-			} else {
-				// Verify position
-				x, y = robotgo.GetMousePos()
-				if x == event.X && y == event.Y {
-					if rc.verbose {
+				} else {
+					// Verify position
+					x, y := robotgoGetMousePosFunc()
+					if x == event.X && y == event.Y {
 						log.Printf("macOS fallback successful, mouse at (%d,%d)", x, y)
+						return nil
 					}
-					return nil
 				}
 			}
-		}
 
-		if rc.verbose {
-			log.Printf("All movement methods failed, mouse at (%d,%d)", x, y)
+			log.Printf("All movement methods failed")
 			log.Printf("This may indicate a permissions issue or a problem with RobotGo")
 		}
 
-		// Continue even if movement failed
+		return err
 
 	case MouseClick:
 		button := "left"
@@ -210,7 +161,10 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 		}
 
 		// Try RobotGo click
-		robotgo.MouseClick(button, event.Double)
+		err := executeMouseClick(button, event.Double)
+		if err != nil && rc.verbose {
+			log.Printf("Mouse click failed: %v", err)
+		}
 
 		// If on macOS, try fallback if needed
 		if runtime.GOOS == "darwin" && rc.verbose {
@@ -218,6 +172,8 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 			// if verbose mode is enabled (assuming this is for debugging)
 			macOSClickMouse(button, event.Double, rc.verbose)
 		}
+
+		return err
 
 	case MouseDblClick:
 		// Reuse the click handler with Double=true
@@ -250,7 +206,10 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 		}
 
 		// Try RobotGo toggle
-		robotgo.Toggle(button)
+		err := executeMouseToggle(button, "down")
+		if err != nil && rc.verbose {
+			log.Printf("Mouse down failed: %v", err)
+		}
 
 		// If on macOS, try fallback if needed
 		if runtime.GOOS == "darwin" && rc.verbose {
@@ -258,6 +217,8 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 			// if verbose mode is enabled (assuming this is for debugging)
 			macOSToggleMouse(button, "down", rc.verbose)
 		}
+
+		return err
 
 	case MouseUp:
 		button := "left"
@@ -280,7 +241,10 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 		}
 
 		// Try RobotGo toggle
-		robotgo.Toggle(button, "up")
+		err := executeMouseToggle(button, "up")
+		if err != nil && rc.verbose {
+			log.Printf("Mouse up failed: %v", err)
+		}
 
 		// If on macOS, try fallback if needed
 		if runtime.GOOS == "darwin" && rc.verbose {
@@ -288,6 +252,8 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 			// if verbose mode is enabled (assuming this is for debugging)
 			macOSToggleMouse(button, "up", rc.verbose)
 		}
+
+		return err
 
 	case MouseDrag:
 		// Get current position
@@ -336,15 +302,17 @@ func (rc *RemoteController) ExecuteMouseEvent(event MouseEvent) error {
 			log.Printf("Dragged from (%d,%d) to (%d,%d)", startX, startY, event.X, event.Y)
 		}
 
+		return nil
+
 	case MouseScroll:
 		// Use Scroll for mouse scrolling
+		// TODO: Add wrapper function for Scroll
 		robotgo.Scroll(0, event.Amount)
+		return nil
 
 	default:
 		return fmt.Errorf("unknown mouse action: %s", event.Action)
 	}
-
-	return nil
 }
 
 // ExecuteKeyboardEvent executes a keyboard event
@@ -361,7 +329,10 @@ func (rc *RemoteController) ExecuteKeyboardEvent(event KeyboardEvent) error {
 	switch event.Action {
 	case KeyPress:
 		// Try RobotGo first
-		robotgo.KeyTap(event.Key)
+		err := executeKeyboardPress(event.Key, nil)
+		if err != nil && rc.verbose {
+			log.Printf("Key press failed: %v", err)
+		}
 
 		// If on macOS, try fallback if needed
 		if runtime.GOOS == "darwin" && rc.verbose {
@@ -370,15 +341,24 @@ func (rc *RemoteController) ExecuteKeyboardEvent(event KeyboardEvent) error {
 			macOSKeyTap(event.Key, rc.verbose)
 		}
 
+		return err
+
 	case KeyDown:
+		// TODO: Add wrapper function for KeyToggle
 		robotgo.KeyToggle(event.Key, "down")
+		return nil
 
 	case KeyUp:
+		// TODO: Add wrapper function for KeyToggle
 		robotgo.KeyToggle(event.Key, "up")
+		return nil
 
 	case KeyType:
 		// Try RobotGo first
-		robotgo.TypeStr(event.Text)
+		err := executeKeyboardType(event.Text)
+		if err != nil && rc.verbose {
+			log.Printf("Key type failed: %v", err)
+		}
 
 		// If on macOS, try fallback if needed
 		if runtime.GOOS == "darwin" && rc.verbose {
@@ -387,6 +367,8 @@ func (rc *RemoteController) ExecuteKeyboardEvent(event KeyboardEvent) error {
 			macOSTypeText(event.Text, rc.verbose)
 		}
 
+		return err
+
 	case KeyCombination:
 		if len(event.Keys) > 0 {
 			// Last element is the key to tap
@@ -394,7 +376,11 @@ func (rc *RemoteController) ExecuteKeyboardEvent(event KeyboardEvent) error {
 			// All other elements are modifiers
 			modifiers := event.Keys[:len(event.Keys)-1]
 
-			robotgo.KeyTap(key, modifiers)
+			err := executeKeyboardPress(key, modifiers)
+			if err != nil && rc.verbose {
+				log.Printf("Key combination failed: %v", err)
+			}
+			return err
 		} else {
 			return fmt.Errorf("key combination requires at least one key")
 		}
@@ -402,8 +388,6 @@ func (rc *RemoteController) ExecuteKeyboardEvent(event KeyboardEvent) error {
 	default:
 		return fmt.Errorf("unknown keyboard action: %s", event.Action)
 	}
-
-	return nil
 }
 
 // checkPermissions checks if the remote control permission is granted
@@ -426,17 +410,14 @@ func (rc *RemoteController) checkPermissions() error {
 	return nil
 }
 
-// Standalone functions for backward compatibility
-
 // GetScreenSize returns the screen size
 func GetScreenSize() (int, int) {
-	width, height := robotgo.GetScreenSize()
-	return width, height
+	return robotgoGetScreenSizeFunc()
 }
 
 // GetMousePosition returns the current mouse position
 func GetMousePosition() (int, int) {
-	return robotgo.GetMousePos()
+	return robotgoGetMousePosFunc()
 }
 
 // ExecuteMouseEvent executes a mouse event
@@ -455,4 +436,51 @@ func ExecuteKeyboardEvent(event KeyboardEvent) error {
 		verbose: false,
 	}
 	return controller.ExecuteKeyboardEvent(event)
+}
+
+// Helper functions for mouse events
+func executeMouseMove(x, y int) error {
+	// Try multiple movement methods in sequence
+
+	// Method 1: Basic Move
+	robotgoMoveMouseFunc(x, y)
+
+	// Verify position
+	posX, posY := robotgoGetMousePosFunc()
+	if posX == x && posY == y {
+		return nil
+	}
+
+	// Method 2: MoveMouse
+	robotgoMoveMouseFunc(x, y)
+
+	// Verify position
+	posX, posY = robotgoGetMousePosFunc()
+	if posX == x && posY == y {
+		return nil
+	}
+
+	// If we get here, all methods failed
+	return fmt.Errorf("failed to move mouse to (%d,%d), current position: (%d,%d)", x, y, posX, posY)
+}
+
+func executeMouseClick(button string, double bool) error {
+	robotgoClickFunc(button, double)
+	return nil
+}
+
+func executeMouseToggle(button, direction string) error {
+	robotgoMouseToggleFunc(button, direction)
+	return nil
+}
+
+// Helper functions for keyboard events
+func executeKeyboardType(text string) error {
+	robotgoTypeStrFunc(text)
+	return nil
+}
+
+func executeKeyboardPress(key string, modifiers []string) error {
+	robotgoKeyTapFunc(key, modifiers...)
+	return nil
 }

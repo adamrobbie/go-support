@@ -1,6 +1,7 @@
 package client
 
 import (
+	"net"
 	"testing"
 	"time"
 )
@@ -22,24 +23,16 @@ func TestNewWebSocketClient(t *testing.T) {
 		t.Error("Expected Verbose to be true")
 	}
 
-	if client.Send == nil {
-		t.Error("Expected Send channel to be non-nil")
+	if client.Handlers == nil {
+		t.Error("Expected Handlers map to be non-nil")
 	}
 
-	if client.Receive == nil {
-		t.Error("Expected Receive channel to be non-nil")
+	if client.ConnectTimeout != 10*time.Second {
+		t.Errorf("Expected ConnectTimeout to be 10 seconds, got %v", client.ConnectTimeout)
 	}
 
-	if client.Done == nil {
-		t.Error("Expected Done channel to be non-nil")
-	}
-
-	if client.Interrupt == nil {
-		t.Error("Expected Interrupt channel to be non-nil")
-	}
-
-	if client.ReconnectWait != 5*time.Second {
-		t.Errorf("Expected ReconnectWait to be 5 seconds, got %v", client.ReconnectWait)
+	if client.Connected {
+		t.Error("Expected Connected to be false initially")
 	}
 }
 
@@ -102,4 +95,124 @@ func TestMessage(t *testing.T) {
 	if msg.Extra["extra"] != "data" {
 		t.Errorf("Expected Extra['extra'] to be 'data', got '%v'", msg.Extra["extra"])
 	}
+}
+
+// TestRegisterHandler tests the RegisterHandler method
+func TestRegisterHandler(t *testing.T) {
+	client := NewWebSocketClient("ws://example.com", false)
+
+	// Define a test handler
+	testHandler := func(data []byte) error {
+		return nil
+	}
+
+	// Register the handler
+	client.RegisterHandler("test", testHandler)
+
+	// Check that the handler was registered correctly
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
+	handler, exists := client.Handlers["test"]
+	if !exists {
+		t.Error("Handler was not registered")
+	}
+
+	// Check that the handler is the same function
+	// We can't directly compare functions in Go, so we'll just check it's not nil
+	if handler == nil {
+		t.Error("Registered handler is nil")
+	}
+}
+
+// TestIsConnected tests the IsConnected method
+func TestIsConnected(t *testing.T) {
+	client := NewWebSocketClient("ws://example.com", false)
+
+	// Initially, the client should not be connected
+	if client.IsConnected() {
+		t.Error("New client should not be connected")
+	}
+
+	// Manually set the connected flag
+	client.mu.Lock()
+	client.Connected = true
+	client.mu.Unlock()
+
+	// Now the client should report as connected
+	if !client.IsConnected() {
+		t.Error("Client should report as connected")
+	}
+}
+
+// mockConn is a mock implementation of the websocket.Conn interface for testing
+type mockConn struct {
+	writeCalled bool
+	writeData   []byte
+	writeType   int
+	closeErr    error
+	writeErr    error
+}
+
+func (m *mockConn) ReadMessage() (messageType int, p []byte, err error) {
+	return 0, nil, nil
+}
+
+func (m *mockConn) WriteMessage(messageType int, data []byte) error {
+	m.writeCalled = true
+	m.writeData = data
+	m.writeType = messageType
+	return m.writeErr
+}
+
+func (m *mockConn) WriteJSON(v interface{}) error {
+	return nil
+}
+
+func (m *mockConn) Close() error {
+	return m.closeErr
+}
+
+func (m *mockConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
+}
+
+func (m *mockConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9090}
+}
+
+// TestSendJSON tests the SendJSON method
+func TestSendJSON(t *testing.T) {
+	client := NewWebSocketClient("ws://example.com", false)
+
+	// Test error case: not connected
+	message := map[string]interface{}{
+		"type": "test",
+		"data": "test data",
+	}
+
+	err := client.SendJSON(message)
+	if err == nil {
+		t.Error("SendJSON() should return an error when not connected")
+	}
+
+	// Check the error message
+	expectedErrMsg := "not connected to WebSocket server"
+	if err.Error() != expectedErrMsg {
+		t.Errorf("Expected error message '%s', got '%s'", expectedErrMsg, err.Error())
+	}
+}
+
+// TestClose tests the Close method
+func TestClose(t *testing.T) {
+	client := NewWebSocketClient("ws://example.com", false)
+
+	// Test closing a client that's not connected
+	err := client.Close()
+	if err != nil {
+		t.Errorf("Close() returned an error for a client that's not connected: %v", err)
+	}
+
+	// We can't easily test the successful case without a real WebSocket connection
+	// or a more complex mock, but we've at least tested the error case
 }

@@ -58,3 +58,31 @@ func (m *MockManager) CheckPermission(permType PermissionType) (PermissionStatus
 	}
 	return status, nil
 }
+
+// EnsurePermission implements the Manager interface
+func (m *MockManager) EnsurePermission(permType PermissionType) (bool, error) {
+	// First check if the permission is already granted
+	status, err := m.CheckPermission(permType)
+	if err != nil {
+		return false, err
+	}
+
+	if status == Granted {
+		return true, nil
+	}
+
+	// If not granted, request it
+	status, err = m.RequestPermission(permType)
+	if err != nil {
+		return false, err
+	}
+
+	return status == Granted, nil
+}
+
+// RequestPermissionInteractive implements the Manager interface
+func (m *MockManager) RequestPermissionInteractive(permType PermissionType) bool {
+	// For testing, just return true if the permission is already granted
+	status, _ := m.CheckPermission(permType)
+	return status == Granted
+}

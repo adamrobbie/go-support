@@ -10,8 +10,11 @@ func TestLoadConfig(t *testing.T) {
 	os.Setenv("WEBSOCKET_URL", "wss://test.example.com/ws")
 	os.Setenv("TS_WEBSOCKET_URL", "ws://localhost:9090")
 
+	// Create a config to load into
+	config := &Config{}
+
 	// Load configuration
-	config, err := loadConfig()
+	err := loadConfig(config)
 	if err != nil {
 		t.Fatalf("loadConfig() returned an error: %v", err)
 	}
@@ -49,8 +52,11 @@ func TestNewApp(t *testing.T) {
 		UseTypeScriptWS: true,
 	}
 
+	// Create interrupt channel
+	interrupt := make(chan os.Signal, 1)
+
 	// Create a new app
-	app := NewApp(config)
+	app := NewApp(config, interrupt)
 
 	// Check that the app was created correctly
 	if app == nil {
@@ -77,15 +83,15 @@ func TestNewApp(t *testing.T) {
 		t.Errorf("Expected UseTypeScriptWS to be %v, got %v", config.UseTypeScriptWS, app.Config.UseTypeScriptWS)
 	}
 
-	if app.PermManager == nil {
-		t.Error("Expected PermManager to be non-nil")
-	}
-
 	if app.Done == nil {
 		t.Error("Expected Done channel to be non-nil")
 	}
 
-	if app.Interrupt == nil {
-		t.Error("Expected Interrupt channel to be non-nil")
+	if app.stopAutoScreenshot == nil {
+		t.Error("Expected stopAutoScreenshot channel to be non-nil")
+	}
+
+	if app.Interrupt != interrupt {
+		t.Error("Expected Interrupt channel to be the same as the one passed to NewApp")
 	}
 }
